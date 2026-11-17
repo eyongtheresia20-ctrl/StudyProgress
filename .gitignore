@@ -71,3 +71,7 @@ serve_web.py
 *.db
 *.sqlite
 *.sqlite3
+
+*.hprof
+.kotlin/
+android/.kotlin/
