@@ -71,10 +71,10 @@ class ApiService {
       addHost('http://localhost:8000');
       addHost(baseUrl);
     } else {
-      if (baseUrl.isNotEmpty) addHost(baseUrl);
-      addHost('http://127.0.0.1:8000');
       addHost('https://solaris-headlines-targeted-dive.trycloudflare.com');
+      if (baseUrl.isNotEmpty) addHost(baseUrl);
       addHost('http://192.168.1.164:8000');
+      addHost('http://127.0.0.1:8000');
       addHost('http://10.0.2.2:8000');
     }
 
@@ -110,7 +110,7 @@ class ApiService {
 
   Future<http.Response> _getWithFallback(
     String path, {
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = const Duration(seconds: 4),
   }) async {
     Object? lastErr;
     final hosts = _candidateHosts;
@@ -463,71 +463,34 @@ class ApiService {
   }
 
   Future<StudentHomeData> getStudentHome() async {
-
-    final res = await http
-
-        .get(_uri('/curriculum/student/home'), headers: _headers)
-
-        .timeout(const Duration(seconds: 10));
-
+    final res = await _getWithFallback('/curriculum/student/home');
     return StudentHomeData.fromJson(_decodeMap(res));
-
   }
 
   Future<StudentHomeData> updateTopicProgress({
-
     required int progressionId,
-
     required String status,
-
     required String understandingLevel,
-
     int? quizScore,
-
     String? weaknessNotes,
-
   }) async {
-
-    final res = await http
-
-        .post(
-
-          _uri('/curriculum/student/progress'),
-
-          headers: _headers,
-
-          body: jsonEncode({
-
-            'progression_id': progressionId,
-
-            'status': status,
-
-            'understanding_level': understandingLevel,
-
-            'quiz_score': quizScore,
-
-            'weakness_notes': weaknessNotes,
-
-          }),
-
-        )
-
-        .timeout(const Duration(seconds: 10));
-
+    final res = await _postWithFallback(
+      '/curriculum/student/progress',
+      body: {
+        'progression_id': progressionId,
+        'status': status,
+        'understanding_level': understandingLevel,
+        if (quizScore != null) 'quiz_score': quizScore,
+        if (weaknessNotes != null) 'weakness_notes': weaknessNotes,
+      },
+      timeout: const Duration(seconds: 10),
+    );
     return StudentHomeData.fromJson(_decodeMap(res));
-
   }
 
   Future<AdminDashboardData> getAdminDashboard() async {
-
-    final res = await http
-
-        .get(_uri('/curriculum/admin/dashboard'), headers: _headers)
-
-        .timeout(const Duration(seconds: 10));
-
+    final res = await _getWithFallback('/curriculum/admin/dashboard');
     return AdminDashboardData.fromJson(_decodeMap(res));
-
   }
 
   Future<OfficialProgression> createOfficialProgression({

@@ -19,9 +19,9 @@ class StudyProvider extends ChangeNotifier {
 
   static Future<String> _detectBestHost() async {
     const candidates = [
-      'http://127.0.0.1:8000',
       'https://solaris-headlines-targeted-dive.trycloudflare.com',
       'http://192.168.1.164:8000',
+      'http://127.0.0.1:8000',
       'http://10.177.13.70:8000',
     ];
     for (final host in candidates) {
