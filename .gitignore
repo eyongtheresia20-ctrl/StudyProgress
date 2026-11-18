@@ -19,7 +19,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ (do not ignore mobile/lib)
 lib64/
 parts/
 sdist/
@@ -75,3 +75,4 @@ serve_web.py
 *.hprof
 .kotlin/
 android/.kotlin/
+cloudflared.exe

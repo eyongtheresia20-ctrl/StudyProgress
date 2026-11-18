@@ -542,7 +542,7 @@ def ask_ai_tutor(
 
     student_ctx = _apply_lang(_fetch_student_ctx(db, user_id), x_app_language)
 
-    history = _fetch_recent_conversation(db, user_id, progression_id=payload.progression_id, limit=4)
+    history = _fetch_recent_conversation(db, user_id, progression_id=payload.progression_id, limit=4) if payload.progression_id else []
 
     effective_q = payload.question.strip() or ("Bonjour !" if (x_app_language or "").startswith("fr") else "Hello!")
 
@@ -1098,7 +1098,7 @@ async def ask_ai_tutor_multimodal(
 
         )
 
-    history = _fetch_recent_conversation(db, user_id, progression_id=progression_id, limit=4)
+    history = _fetch_recent_conversation(db, user_id, progression_id=progression_id, limit=4) if progression_id else []
 
     answer, model_used = assistant.ask_tutor_multimodal(
 

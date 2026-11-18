@@ -127,47 +127,30 @@ class GeminiStudyAssistant:
 
 
     def _call_gemini(
-
         self,
-
         system_instruction: str,
-
         contents: Any,
-
         temperature: float = 0.4,
-
         max_output_tokens: int = 8192,
-
+        response_mime_type: Optional[str] = None,
     ) -> tuple[str, str]:
-
         assert self._client is not None
-
         last_err: Optional[Exception] = None
-
         for candidate in self._candidate_models():
-
             try:
-
+                cfg_kwargs: dict[str, Any] = {
+                    "system_instruction": system_instruction,
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
+                }
+                if response_mime_type:
+                    cfg_kwargs["response_mime_type"] = response_mime_type
                 response = self._client.models.generate_content(
-
                     model=candidate,
-
                     contents=contents,
-
-                    config=types.GenerateContentConfig(
-
-                        system_instruction=system_instruction,
-
-                        temperature=temperature,
-
-                        max_output_tokens=max_output_tokens,
-
-                    ),
-
+                    config=types.GenerateContentConfig(**cfg_kwargs),
                 )
-
                 self.model = candidate
-
                 return (response.text or "").strip(), candidate
 
             except genai_errors.APIError as exc:
@@ -223,19 +206,13 @@ class GeminiStudyAssistant:
 
 
     def _generate_contents(
-
         self,
-
         system_instruction: str,
-
         contents: Any,
-
         attachment_labels: Optional[list[str]] = None,
-
         temperature: float = 0.4,
-
         max_output_tokens: int = 8192,
-
+        response_mime_type: Optional[str] = None,
     ) -> tuple[str, str]:
 
         if not self._client:
@@ -267,9 +244,7 @@ class GeminiStudyAssistant:
 
 
         text, used_model = self._call_gemini(
-
-            system_instruction, contents, temperature=temperature, max_output_tokens=max_output_tokens
-
+            system_instruction, contents, temperature=temperature, max_output_tokens=max_output_tokens, response_mime_type=response_mime_type
         )
 
         return text or "No response generated.", used_model
@@ -277,23 +252,15 @@ class GeminiStudyAssistant:
 
 
     def _generate_text(
-
         self,
-
         system_instruction: str,
-
         prompt: str,
-
         temperature: float = 0.4,
-
         max_output_tokens: int = 8192,
-
+        response_mime_type: Optional[str] = None,
     ) -> tuple[str, str]:
-
         return self._generate_contents(
-
-            system_instruction, prompt, temperature=temperature, max_output_tokens=max_output_tokens
-
+            system_instruction, prompt, temperature=temperature, max_output_tokens=max_output_tokens, response_mime_type=response_mime_type
         )
 
 
@@ -510,7 +477,7 @@ class GeminiStudyAssistant:
 
         if not valid_attachments:
 
-            return self._generate_contents(system, prompt_text, temperature=0.2, max_output_tokens=2048)
+            return self._generate_contents(system, prompt_text, temperature=0.2, max_output_tokens=1200)
 
 
 
@@ -524,7 +491,7 @@ class GeminiStudyAssistant:
 
             labels.append(f"{filename} ({mime_type})")
 
-        return self._generate_contents(system, parts, attachment_labels=labels, temperature=0.2, max_output_tokens=2048)
+        return self._generate_contents(system, parts, attachment_labels=labels, temperature=0.2, max_output_tokens=1200)
 
 
 
@@ -1000,7 +967,7 @@ class GeminiStudyAssistant:
 
             )
 
-        raw_text, model_used = self._generate_text(system, prompt, temperature=0.2, max_output_tokens=3200)
+        raw_text, model_used = self._generate_text(system, prompt, temperature=0.2, max_output_tokens=2200, response_mime_type="application/json")
 
         notes, diagrams, simulation = _parse_summary_json(
 
@@ -1216,7 +1183,7 @@ class GeminiStudyAssistant:
 
             )
 
-        raw_text, model_used = self._generate_text(system, prompt, temperature=0.35)
+        raw_text, model_used = self._generate_text(system, prompt, temperature=0.25, max_output_tokens=1500, response_mime_type="application/json")
 
         questions = _parse_quiz_json(raw_text)
 

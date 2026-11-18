@@ -367,7 +367,7 @@ def fetch_verified_topic_notes(
 
         for fut in futures:
             try:
-                results.extend(fut.result(timeout=1.0))
+                results.extend(fut.result(timeout=0.6))
             except Exception:
                 continue
 
