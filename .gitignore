@@ -76,3 +76,21 @@ serve_web.py
 .kotlin/
 android/.kotlin/
 cloudflared.exe
+
+# Build outputs & screenshots
+*.apk
+*.png
+ACTIVE_SERVER_URL.txt
+mobile/ACTIVE_TUNNEL.txt
+
+# Local inspect & patch scratch scripts
+inspect_*.py
+patch_*.py
+scratch_*.py
+test_*.py
+fix_patch.py
+tunnel_daemon.py
+find_programme.py
+check_pg_counts.py
+migrate_to_supabase.py
+

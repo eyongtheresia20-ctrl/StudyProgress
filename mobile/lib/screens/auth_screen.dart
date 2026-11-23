@@ -74,6 +74,250 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+
+  void _showServerConfigSheet(BuildContext context, StudyProvider provider) {
+    final urlCtrl = TextEditingController(text: provider.apiBaseUrl);
+    bool isTesting = false;
+    bool? testSuccess;
+    String? testMessage;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final isFr = provider.languageCode == 'fr';
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(Icons.dns_rounded, color: _plumPrimary, size: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isFr ? 'Configuration du Serveur' : 'Server Configuration',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  isFr
+                      ? 'Choisissez une adresse ou saisissez l\'URL du serveur :'
+                      : 'Choose an address or type your backend server URL:',
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ActionChip(
+                      avatar: const Icon(Icons.cloud_outlined, size: 16),
+                      label: const Text('4G / Internet (Cloudflare)'),
+                      onPressed: () {
+                        setSheetState(() {
+                          urlCtrl.text = 'https://whilst-endorsed-hampshire-out.trycloudflare.com';
+                          testSuccess = null;
+                        });
+                      },
+                    ),
+                    ActionChip(
+                      avatar: const Icon(Icons.wifi, size: 16),
+                      label: const Text('Wi-Fi Bureau (192.168.10.233)'),
+                      onPressed: () {
+                        setSheetState(() {
+                          urlCtrl.text = 'http://192.168.10.233:8000';
+                          testSuccess = null;
+                        });
+                      },
+                    ),
+                    ActionChip(
+                      avatar: const Icon(Icons.usb, size: 16),
+                      label: const Text('USB / ADB (127.0.0.1)'),
+                      onPressed: () {
+                        setSheetState(() {
+                          urlCtrl.text = 'http://127.0.0.1:8000';
+                          testSuccess = null;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: urlCtrl,
+                  decoration: InputDecoration(
+                    labelText: isFr ? 'URL du serveur backend' : 'Backend Server URL',
+                    prefixIcon: const Icon(Icons.link_rounded),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (testMessage != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: testSuccess == true
+                          ? const Color(0xFFDCFCE7)
+                          : const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: testSuccess == true
+                            ? const Color(0xFF86EFAC)
+                            : const Color(0xFFFCA5A5),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          testSuccess == true
+                              ? Icons.check_circle_outline
+                              : Icons.error_outline,
+                          size: 16,
+                          color: testSuccess == true
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB91C1C),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            testMessage!,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: testSuccess == true
+                                  ? const Color(0xFF166534)
+                                  : const Color(0xFF991B1B),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: isTesting
+                            ? null
+                            : () async {
+                                setSheetState(() {
+                                  isTesting = true;
+                                  testMessage = null;
+                                });
+                                final ok = await provider.testConnection(urlCtrl.text);
+                                setSheetState(() {
+                                  isTesting = false;
+                                  testSuccess = ok;
+                                  testMessage = ok
+                                      ? (isFr
+                                          ? 'Serveur en ligne et joignable !'
+                                          : 'Server is online and reachable!')
+                                      : (isFr
+                                          ? 'Impossible de joindre ce serveur.'
+                                          : 'Cannot reach this server.');
+                                });
+                              },
+                        icon: isTesting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.network_check_rounded, size: 18),
+                        label: Text(isFr ? 'Tester' : 'Test'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _plumPrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () async {
+                          final target = urlCtrl.text.trim();
+                          if (target.isEmpty) return;
+                          await provider.setApiBaseUrl(target);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          setState(() => _localError = null);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                isFr
+                                    ? 'Serveur mis à jour : $target'
+                                    : 'Server updated: $target',
+                              ),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          isFr ? 'Enregistrer & Utiliser' : 'Save & Use',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<StudyProvider>();
@@ -168,6 +412,14 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Align(
+            alignment: Alignment.topRight,
+            child: IconButton(
+              icon: const Icon(Icons.settings_ethernet_rounded, color: Color(0xFF64748B), size: 20),
+              tooltip: 'Server Settings',
+              onPressed: () => _showServerConfigSheet(context, provider),
+            ),
+          ),
           const Center(
             child: KivoraLogo(size: 62, showTitle: true),
           ),
@@ -376,17 +628,39 @@ class _AuthScreenState extends State<AuthScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFFCA5A5), width: 1.2),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.error_outline, color: Color(0xFFB91C1C), size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _localError!,
-                      style: const TextStyle(
-                        color: Color(0xFF991B1B),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                  Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Color(0xFFB91C1C), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _localError!,
+                          style: const TextStyle(
+                            color: Color(0xFF991B1B),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        foregroundColor: const Color(0xFFB91C1C),
+                      ),
+                      onPressed: () => _showServerConfigSheet(context, provider),
+                      icon: const Icon(Icons.settings_ethernet_rounded, size: 16),
+                      label: Text(
+                        provider.languageCode == 'fr' ? 'Changer de serveur' : 'Change Server',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),

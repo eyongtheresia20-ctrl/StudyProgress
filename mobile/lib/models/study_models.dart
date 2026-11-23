@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class AppUser {
   final int id;
   final String fullName;
@@ -99,6 +101,12 @@ class StudentProfile {
   final int dailyGoalMinutes;
   final int reminderHour;
   final int reminderMinute;
+  final List<String> offeredSubjects;
+  final int weeklyProgramDay;
+  final int weeklyProgramHour;
+  final int weeklyProgramMinute;
+  final int dailyProgramHour;
+  final int dailyProgramMinute;
 
   StudentProfile({
     required this.userId,
@@ -121,9 +129,25 @@ class StudentProfile {
     required this.dailyGoalMinutes,
     required this.reminderHour,
     required this.reminderMinute,
+    this.offeredSubjects = const [],
+    this.weeklyProgramDay = 7,
+    this.weeklyProgramHour = 18,
+    this.weeklyProgramMinute = 0,
+    this.dailyProgramHour = 7,
+    this.dailyProgramMinute = 0,
   });
 
   factory StudentProfile.fromJson(Map<String, dynamic> json) {
+    List<String> parseListField(dynamic val) {
+      if (val == null) return [];
+      if (val is List) return val.map((e) => e.toString()).toList();
+      try {
+        final d = jsonDecode(val.toString());
+        if (d is List) return d.map((e) => e.toString()).toList();
+      } catch (_) {}
+      return [];
+    }
+
     return StudentProfile(
       userId: (json['user_id'] as num).toInt(),
       subsystemId: (json['subsystem_id'] as num?)?.toInt(),
@@ -134,11 +158,13 @@ class StudentProfile {
       questionnaireCompleted:
           json['questionnaire_completed'] as bool? ?? false,
       favouriteSubject: json['favourite_subject'] as String?,
-      difficultSubjects: (json['difficult_subjects'] as List<dynamic>? ?? [])
+      difficultSubjects: (json['difficult_subjects'] as List<dynamic>? ??
+              parseListField(json['difficult_subjects_json']))
           .map((e) => e.toString())
           .toList(),
       difficultyReason: json['difficulty_reason'] as String?,
-      hobbies: (json['hobbies'] as List<dynamic>? ?? [])
+      hobbies: (json['hobbies'] as List<dynamic>? ??
+              parseListField(json['hobbies_json']))
           .map((e) => e.toString())
           .toList(),
       activityStyle: json['activity_style'] as String? ?? 'both',
@@ -154,6 +180,15 @@ class StudentProfile {
       dailyGoalMinutes: (json['daily_goal_minutes'] as num?)?.toInt() ?? 60,
       reminderHour: (json['reminder_hour'] as num?)?.toInt() ?? 18,
       reminderMinute: (json['reminder_minute'] as num?)?.toInt() ?? 0,
+      offeredSubjects: (json['offered_subjects'] as List<dynamic>? ??
+              parseListField(json['subjects_json']))
+          .map((e) => e.toString())
+          .toList(),
+      weeklyProgramDay: (json['weekly_program_day'] as num?)?.toInt() ?? 7,
+      weeklyProgramHour: (json['weekly_program_hour'] as num?)?.toInt() ?? 18,
+      weeklyProgramMinute: (json['weekly_program_minute'] as num?)?.toInt() ?? 0,
+      dailyProgramHour: (json['daily_program_hour'] as num?)?.toInt() ?? 7,
+      dailyProgramMinute: (json['daily_program_minute'] as num?)?.toInt() ?? 0,
     );
   }
 }

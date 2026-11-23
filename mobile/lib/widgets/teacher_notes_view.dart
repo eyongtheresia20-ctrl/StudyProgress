@@ -1848,6 +1848,9 @@ String _stripOuterBold(String s) {
   return t.replaceAll('**', '');
 }
 
+String cleanMathNotation(String raw, [String? studentName, bool isFr = false]) =>
+    _cleanMathNotation(raw, studentName, isFr);
+
 String _cleanMathNotation(String raw, [String? studentName, bool isFr = false]) {
   var s = raw;
   final richIdx = s.indexOf('<!--KIVORA_RICH_V1:');
@@ -1894,15 +1897,25 @@ String _cleanMathNotation(String raw, [String? studentName, bool isFr = false]) 
       target,
     );
   }
-  // Convert common LaTeX commands before stripping $ delimiters.
+  // 1. Strip raw LaTeX text commands like \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
+  s = s.replaceAllMapped(
+    RegExp(r'\\(?:text|mathrm|mathbf|mathit)\{([^{}]+)\}'),
+    (m) => m.group(1) ?? '',
+  );
+
+  // 2. Convert common LaTeX math operators, fractions, square roots and dots
   s = s.replaceAllMapped(
     RegExp(r'\\frac\{([^{}]+)\}\{([^{}]+)\}'),
-    (m) => '(${m.group(1)} / ${m.group(2)})',
+    (m) => '( / )',
   );
   s = s.replaceAllMapped(
     RegExp(r'\\sqrt\{([^{}]+)\}'),
-    (m) => '√(${m.group(1)})',
+    (m) => '√()',
   );
+  s = s.replaceAll(r'\dots', '...');
+  s = s.replaceAll(r'\ldots', '...');
+  s = s.replaceAll(r'\cdots', '...');
+
   const replacements = {
     r'\times': '×',
     r'\cdot': '·',
@@ -1919,35 +1932,76 @@ String _cleanMathNotation(String raw, [String? studentName, bool isFr = false]) 
     r'\theta': 'θ',
     r'\alpha': 'α',
     r'\beta': 'β',
+    r'\gamma': 'γ',
+    r'\Delta': 'Δ',
+    r'\delta': 'δ',
+    r'\lambda': 'λ',
+    r'\mu': 'μ',
+    r'\sigma': 'σ',
+    r'\omega': 'ω',
+    r'\Omega': 'Ω',
     r'\Rightarrow': '⇒',
     r'\rightarrow': '→',
     r'\to': '→',
+    r'\leftarrow': '←',
+    r'\leftrightarrow': '↔',
     r'\left(': '(',
     r'\right)': ')',
     r'\left[': '[',
     r'\right]': ']',
+    r'\left\{': '{',
+    r'\right\}': '}',
   };
   replacements.forEach((k, v) {
     s = s.replaceAll(k, v);
   });
-  // Convert simple exponents (^2, ^3, ^{2}, etc.) to clean Unicode superscripts.
+
+  // Unicode superscripts and subscripts maps
   const supMap = {
-    '0': '⁰',
-    '1': '¹',
-    '2': '²',
-    '3': '³',
-    '4': '⁴',
-    '5': '⁵',
-    '6': '⁶',
-    '7': '⁷',
-    '8': '⁸',
-    '9': '⁹',
-    'n': 'ⁿ',
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', 'n': 'ⁿ', 'x': 'ˣ', 'y': 'ʸ', 'm': 'ᵐ',
   };
-  s = s.replaceAllMapped(RegExp(r'\^\{([0-9n])\}|\^([0-9n])'), (m) {
-    final key = m.group(1) ?? m.group(2) ?? '';
-    return supMap[key] ?? '^$key';
-  });
+  const subMap = {
+    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    '+': '₊', '-': '₋', 'a': 'ₐ', 'e': 'ₑ', 'i': 'ᵢ',
+    'o': 'ₒ', 'u': 'ᵤ', 'x': 'ₓ',
+  };
+
+  String toSuperscript(String src) =>
+      src.split('').map((c) => supMap[c] ?? c).join();
+  String toSubscript(String src) =>
+      src.split('').map((c) => subMap[c] ?? c).join();
+
+  // 3. Handle combined isotope notation: ^{238}_{92} or ^4_2 or ^{14}_{6}
+  s = s.replaceAllMapped(
+    RegExp(r'\^\{([0-9+-]+)\}_\{([0-9+-]+)\}|\^([0-9+-]+)_([0-9+-]+)'),
+    (m) {
+      final sup = m.group(1) ?? m.group(3) ?? '';
+      final sub = m.group(2) ?? m.group(4) ?? '';
+      return '';
+    },
+  );
+
+  // 4. Multi-digit or single-digit superscripts: ^{238}, ^2, ^3, etc.
+  s = s.replaceAllMapped(
+    RegExp(r'\^\{([0-9+-nxy]+)\}|\^([0-9nxy])'),
+    (m) {
+      final key = m.group(1) ?? m.group(2) ?? '';
+      return toSuperscript(key);
+    },
+  );
+
+  // 5. Multi-digit or single-digit subscripts: _{92}, _2, _3, etc.
+  s = s.replaceAllMapped(
+    RegExp(r'_\{([0-9+-aeioux]+)\}|_([0-9])'),
+    (m) {
+      final key = m.group(1) ?? m.group(2) ?? '';
+      return toSubscript(key);
+    },
+  );
+
   // Remove LaTeX inline/display $...$ / $$...$$ delimiters cleanly.
   s = s.replaceAll(r'$$', '');
   s = s.replaceAllMapped(
@@ -2172,6 +2226,110 @@ SimulationScene _inferSceneForStep(SimulationStep step, String simTitle) {
       '$simTitle ${step.title} ${step.action} ${step.visualModel} ${step.outcome}'
           .toLowerCase();
 
+  // 1. Language & Communication (English, French, Chinese, German, Spanish, etc.)
+  final isLanguageTopic = text.contains('chinois') ||
+      text.contains('chinese') ||
+      text.contains('anglais') ||
+      text.contains('english') ||
+      text.contains('français') ||
+      text.contains('francais') ||
+      text.contains('french') ||
+      text.contains('allemand') ||
+      text.contains('german') ||
+      text.contains('espagnol') ||
+      text.contains('spanish') ||
+      text.contains('latin') ||
+      text.contains('arabe') ||
+      text.contains('arabic') ||
+      text.contains('italien') ||
+      text.contains('italian') ||
+      text.contains('vocabulaire') ||
+      text.contains('vocabulary') ||
+      text.contains('dialogue') ||
+      text.contains('conversation') ||
+      text.contains('communication') ||
+      text.contains('expression') ||
+      text.contains('compréhension') ||
+      text.contains('comprehension') ||
+      text.contains('rencontre') ||
+      text.contains('salutation') ||
+      text.contains('parler') ||
+      text.contains('speaking') ||
+      text.contains('listening') ||
+      text.contains('grammaire') ||
+      text.contains('grammar');
+
+  if (isLanguageTopic) {
+    return SimulationScene(
+      environment: 'language',
+      objects: [
+        SceneObject(sprite: 'person', label: 'Élève A (Locuteur)', x: 0.20, y: 0.52, color: 'blue'),
+        SceneObject(sprite: 'dialogue', label: 'Dialogue & Vocabulaire', x: 0.50, y: 0.38, color: 'purple', scale: 1.2),
+        SceneObject(sprite: 'person', label: 'Élève B (Interlocuteur)', x: 0.80, y: 0.52, color: 'green'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.25, fromY: 0.52, toX: 0.45, toY: 0.38, particle: 'spark', color: 'cyan', label: 'Échange'),
+        SceneMotion(fromX: 0.55, fromY: 0.38, toX: 0.75, toY: 0.52, particle: 'photon', color: 'green', label: 'Écoute'),
+        SceneMotion(fromX: 0.75, fromY: 0.54, toX: 0.25, toY: 0.54, particle: 'spark', color: 'amber', label: 'Réponse'),
+      ],
+    );
+  }
+
+  // 2. Nuclear Science & Radioactivity (Alpha, Beta, Gamma, Becquerel)
+  final isNuclearTopic = text.contains('radioactivit') ||
+      text.contains('radioactive') ||
+      text.contains('becquerel') ||
+      text.contains('désintégration') ||
+      text.contains('desintegration') ||
+      (text.contains('alpha') && text.contains('beta')) ||
+      text.contains('rayonnement') ||
+      text.contains('nucléaire') ||
+      text.contains('nucleaire') ||
+      text.contains('isotope');
+
+  if (isNuclearTopic) {
+    return SimulationScene(
+      environment: 'nuclear',
+      objects: [
+        SceneObject(sprite: 'atom', label: 'Noyau Instable', x: 0.32, y: 0.50, color: 'red', scale: 1.3),
+        SceneObject(sprite: 'spark', label: 'Rayonnements (α, β, γ)', x: 0.65, y: 0.38, color: 'amber'),
+        SceneObject(sprite: 'chart', label: 'Plaque Détecteur', x: 0.85, y: 0.50, color: 'teal'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.35, fromY: 0.46, toX: 0.70, toY: 0.30, particle: 'photon', color: 'amber', label: 'Alpha (α)'),
+        SceneMotion(fromX: 0.35, fromY: 0.50, toX: 0.75, toY: 0.50, particle: 'electron', color: 'cyan', label: 'Bêta (β)'),
+        SceneMotion(fromX: 0.35, fromY: 0.54, toX: 0.82, toY: 0.68, particle: 'wave', color: 'purple', label: 'Gamma (γ)'),
+      ],
+    );
+  }
+
+  // 3. Agriculture & Livestock (Élevage des porcs, bétail, cultures)
+  final isAgricultureTopic = text.contains('élevage') ||
+      text.contains('elevage') ||
+      text.contains('porc') ||
+      text.contains('bétail') ||
+      text.contains('betail') ||
+      text.contains('ferme') ||
+      text.contains('volaille') ||
+      text.contains('agricole') ||
+      text.contains('agriculture') ||
+      text.contains('travail manuel (production');
+
+  if (isAgricultureTopic) {
+    return SimulationScene(
+      environment: 'agriculture',
+      objects: [
+        SceneObject(sprite: 'shop', label: 'Enclos & Abri sain', x: 0.22, y: 0.54, color: 'amber'),
+        SceneObject(sprite: 'heart', label: 'Sujet Sain (Race choisie)', x: 0.52, y: 0.50, color: 'green', scale: 1.2),
+        SceneObject(sprite: 'star', label: 'Alimentation & Soins', x: 0.82, y: 0.52, color: 'blue'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.28, fromY: 0.54, toX: 0.46, toY: 0.50, particle: 'spark', color: 'amber', label: 'Habitat'),
+        SceneMotion(fromX: 0.58, fromY: 0.50, toX: 0.76, toY: 0.52, particle: 'photon', color: 'green', label: 'Ration'),
+      ],
+    );
+  }
+
   if (text.contains('xylem') ||
       text.contains('root') ||
       text.contains('leaf') ||
@@ -2353,43 +2511,731 @@ SimulationScene _inferSceneForStep(SimulationStep step, String simTitle) {
   }
 
   if (text.contains('history') ||
+      text.contains('histor') ||
+      text.contains('world war') ||
+      text.contains('wwii') ||
+      text.contains('ww2') ||
+      text.contains('guerre') ||
+      text.contains('treaty') ||
+      text.contains('traité') ||
+      text.contains('allies') ||
+      text.contains('axis') ||
+      text.contains('frontline') ||
+      text.contains('bataille') ||
+      text.contains('battle') ||
+      text.contains('colonial') ||
+      text.contains('revolution') ||
+      text.contains('révolution') ||
       text.contains('citizen') ||
       text.contains('civic') ||
-      text.contains('essay') ||
-      text.contains('literature') ||
-      text.contains('grammar') ||
       text.contains('constitution') ||
-      text.contains('law') ||
       text.contains('rights')) {
     return SimulationScene(
-      environment: 'humanities',
+      environment: 'history',
       objects: [
-        SceneObject(sprite: 'book', label: 'Core Source', x: 0.20, y: 0.50, color: 'amber'),
-        SceneObject(sprite: 'scale', label: 'Key Principle', x: 0.52, y: 0.48, color: 'purple'),
-        SceneObject(sprite: 'globe', label: 'Society Impact', x: 0.82, y: 0.50, color: 'teal'),
+        SceneObject(sprite: 'book', label: 'Alliances & Pacts', x: 0.20, y: 0.50, color: 'amber'),
+        SceneObject(sprite: 'shield', label: 'Frontlines & Turning Point', x: 0.52, y: 0.48, color: 'blue', scale: 1.2),
+        SceneObject(sprite: 'globe', label: 'Post-War Order & Treaty', x: 0.82, y: 0.50, color: 'teal'),
       ],
       motions: [
-        SceneMotion(fromX: 0.26, fromY: 0.50, toX: 0.46, toY: 0.48, particle: 'photon', color: 'amber', label: 'Facts'),
-        SceneMotion(fromX: 0.58, fromY: 0.48, toX: 0.76, toY: 0.50, particle: 'spark', color: 'green', label: 'Impact'),
+        SceneMotion(fromX: 0.26, fromY: 0.50, toX: 0.46, toY: 0.48, particle: 'spark', color: 'red', label: 'Frontlines'),
+        SceneMotion(fromX: 0.58, fromY: 0.48, toX: 0.76, toY: 0.50, particle: 'photon', color: 'cyan', label: 'Accords'),
       ],
     );
   }
 
+  if (text.contains('settlement') ||
+      text.contains('urban') ||
+      text.contains('ville') ||
+      text.contains('habitat') ||
+      text.contains('rural') ||
+      text.contains('population') ||
+      text.contains('city') ||
+      text.contains('cbd') ||
+      text.contains('zonage') ||
+      text.contains('zoning') ||
+      text.contains('hinterland') ||
+      text.contains('étalement') ||
+      text.contains('démograph') ||
+      text.contains('demograph') ||
+      text.contains('migration') ||
+      text.contains('exode rural')) {
+    return SimulationScene(
+      environment: 'city',
+      objects: [
+        SceneObject(sprite: 'mountain', label: 'Rural Hinterland & Site', x: 0.20, y: 0.52, color: 'green'),
+        SceneObject(sprite: 'shop', label: 'Central Urban Core (CBD)', x: 0.52, y: 0.48, color: 'blue', scale: 1.25),
+        SceneObject(sprite: 'person', label: 'Residential Suburbs', x: 0.82, y: 0.52, color: 'purple'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.26, fromY: 0.52, toX: 0.46, toY: 0.48, particle: 'spark', color: 'cyan', label: 'Migration'),
+        SceneMotion(fromX: 0.58, fromY: 0.48, toX: 0.76, toY: 0.52, particle: 'photon', color: 'amber', label: 'Zoning'),
+      ],
+    );
+  }
+
+  if (text.contains('money') ||
+      text.contains('monnaie') ||
+      text.contains('bank') ||
+      text.contains('banque') ||
+      text.contains('credit') ||
+      text.contains('crédit') ||
+      text.contains('inflation') ||
+      text.contains('interest') ||
+      text.contains('taux') ||
+      text.contains('liquidity') ||
+      text.contains('liquidité') ||
+      text.contains('currency') ||
+      text.contains('capital') ||
+      text.contains('sole') ||
+      text.contains('business') ||
+      text.contains('shop') ||
+      text.contains('profit') ||
+      text.contains('market') ||
+      text.contains('trade')) {
+    return SimulationScene(
+      environment: 'commerce',
+      objects: [
+        SceneObject(sprite: 'bank', label: 'Central Bank & Reserves', x: 0.20, y: 0.52, color: 'blue'),
+        SceneObject(sprite: 'coin', label: 'Commercial Lending Loop', x: 0.52, y: 0.48, color: 'amber', scale: 1.25),
+        SceneObject(sprite: 'shop', label: 'Market Liquidity & Goods', x: 0.82, y: 0.52, color: 'green'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.26, fromY: 0.52, toX: 0.46, toY: 0.48, particle: 'coin', color: 'amber', label: 'Credit'),
+        SceneMotion(fromX: 0.58, fromY: 0.48, toX: 0.76, toY: 0.52, particle: 'coin', color: 'green', label: 'Liquidity'),
+      ],
+    );
+  }
+
+  if (text.contains('guidance') || text.contains('counselling') || text.contains('orientation') || text.contains('conseil') || text.contains('psycholog')) {
+    return SimulationScene(
+      environment: 'counselling',
+      objects: [
+        SceneObject(sprite: 'person', label: 'Counselor / Guide', x: 0.20, y: 0.52, color: 'blue'),
+        SceneObject(sprite: 'heart', label: 'Student Needs', x: 0.52, y: 0.50, color: 'purple', scale: 1.15),
+        SceneObject(sprite: 'star', label: 'Action Plan', x: 0.82, y: 0.50, color: 'green'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.28, fromY: 0.52, toX: 0.46, toY: 0.50, particle: 'spark', color: 'purple', label: 'Listen'),
+        SceneMotion(fromX: 0.58, fromY: 0.50, toX: 0.76, toY: 0.50, particle: 'photon', color: 'green', label: 'Guide'),
+      ],
+    );
+  }
+
+  if (text.contains('fashion') || text.contains('figurine') || text.contains('couture') || text.contains('croquis') || text.contains('patronage')) {
+    return SimulationScene(
+      environment: 'arts',
+      objects: [
+        SceneObject(sprite: 'document', label: 'Proportion & Grid', x: 0.20, y: 0.52, color: 'blue'),
+        SceneObject(sprite: 'person', label: 'Figurine Silhouette', x: 0.52, y: 0.48, color: 'purple', scale: 1.2),
+        SceneObject(sprite: 'star', label: 'Final Artwork', x: 0.82, y: 0.50, color: 'amber'),
+      ],
+      motions: [
+        SceneMotion(fromX: 0.28, fromY: 0.52, toX: 0.46, toY: 0.48, particle: 'spark', color: 'purple', label: 'Outline'),
+        SceneMotion(fromX: 0.58, fromY: 0.48, toX: 0.76, toY: 0.50, particle: 'photon', color: 'amber', label: 'Shade'),
+      ],
+    );
+  }
+
+  final cleanTitle = simTitle
+      .replaceAll(RegExp(r'^(?:Simulation|Laboratoire|Simulateur|Atelier|Interactive|Video)\s*[^:]*:\s*', caseSensitive: false), '')
+      .replaceAll(RegExp(r'[^\w\s\-]'), ' ')
+      .trim();
+  final words = cleanTitle.split(RegExp(r'\s+')).where((w) => w.length > 2).toList();
+  final topicName = words.take(2).join(' ');
+  final s1Label = topicName.isNotEmpty ? '$topicName Setup' : 'Starting Parameters';
+  final s2Label = step.title.length > 4 && !step.title.toLowerCase().startsWith('step') && !step.title.toLowerCase().startsWith('étape')
+      ? step.title
+      : (topicName.isNotEmpty ? '$topicName Mechanism' : 'Active Operation');
+  final s3Label = topicName.isNotEmpty ? '$topicName Output' : 'Exam Mastery';
+
   return SimulationScene(
-    environment: 'physics',
+    environment: 'concept',
     objects: [
-      SceneObject(sprite: 'atom', label: 'Core Principle', x: 0.22, y: 0.52, color: 'blue'),
-      SceneObject(sprite: 'wave', label: 'Interaction', x: 0.52, y: 0.52, color: 'purple'),
-      SceneObject(sprite: 'chart', label: 'Result', x: 0.82, y: 0.50, color: 'green'),
+      SceneObject(sprite: 'book', label: s1Label, x: 0.22, y: 0.52, color: 'blue'),
+      SceneObject(sprite: 'cpu', label: s2Label, x: 0.52, y: 0.52, color: 'purple', scale: 1.15),
+      SceneObject(sprite: 'star', label: s3Label, x: 0.82, y: 0.50, color: 'green'),
     ],
     motions: [
-      SceneMotion(fromX: 0.28, fromY: 0.52, toX: 0.46, toY: 0.52, particle: 'photon', color: 'cyan'),
-      SceneMotion(fromX: 0.58, fromY: 0.52, toX: 0.76, toY: 0.50, particle: 'spark', color: 'green'),
+      SceneMotion(fromX: 0.28, fromY: 0.52, toX: 0.46, toY: 0.52, particle: 'photon', color: 'cyan', label: 'Apply'),
+      SceneMotion(fromX: 0.58, fromY: 0.52, toX: 0.76, toY: 0.50, particle: 'spark', color: 'green', label: 'Verify'),
     ],
   );
 }
 
 class _VirtualSimulationPainter extends CustomPainter {
+  bool _isLanguageTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'language' || env == 'communication' || env == 'dialogue') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('chinois') ||
+        joined.contains('chinese') ||
+        joined.contains('anglais') ||
+        joined.contains('english') ||
+        joined.contains('français') ||
+        joined.contains('francais') ||
+        joined.contains('french') ||
+        joined.contains('allemand') ||
+        joined.contains('german') ||
+        joined.contains('espagnol') ||
+        joined.contains('spanish') ||
+        joined.contains('vocabulaire') ||
+        joined.contains('vocabulary') ||
+        joined.contains('dialogue') ||
+        joined.contains('conversation') ||
+        joined.contains('communication') ||
+        joined.contains('expression orale') ||
+        joined.contains('compréhension de texte') ||
+        joined.contains('comprehension') ||
+        joined.contains('rencontre entre amis') ||
+        joined.contains('salutation') ||
+        joined.contains('grammaire') ||
+        joined.contains('grammar');
+  }
+
+  bool _isNuclearRadioactivityTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'nuclear' || env == 'radioactivity') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('radioactivit') ||
+        joined.contains('radioactive') ||
+        joined.contains('becquerel') ||
+        joined.contains('désintégration') ||
+        joined.contains('desintegration') ||
+        (joined.contains('alpha') && joined.contains('beta')) ||
+        joined.contains('rayonnement alpha') ||
+        joined.contains('noyau atomique') ||
+        joined.contains('fission') ||
+        joined.contains('rayon gamma');
+  }
+
+  bool _isAgricultureTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'agriculture' || env == 'livestock') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('élevage') ||
+        joined.contains('elevage') ||
+        joined.contains('porc') ||
+        joined.contains('bétail') ||
+        joined.contains('betail') ||
+        joined.contains('ferme') ||
+        joined.contains('volaille') ||
+        joined.contains('agricole') ||
+        joined.contains('agriculture') ||
+        joined.contains('travail manuel (production');
+  }
+
+  bool _isHistoryStageTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'history' || env == 'geopolitics' || env == 'war') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('history') ||
+        joined.contains('histor') ||
+        joined.contains('world war') ||
+        joined.contains('wwii') ||
+        joined.contains('ww2') ||
+        joined.contains('guerre') ||
+        joined.contains('treaty') ||
+        joined.contains('traité') ||
+        joined.contains('allies') ||
+        joined.contains('axis') ||
+        joined.contains('frontline') ||
+        joined.contains('bataille') ||
+        joined.contains('battle') ||
+        joined.contains('colonial') ||
+        joined.contains('decoloniz') ||
+        joined.contains('décolonis') ||
+        joined.contains('revolution') ||
+        joined.contains('révolution') ||
+        joined.contains('cold war');
+  }
+
+  bool _isUrbanGeographyStageTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'city' || env == 'urban' || env == 'settlement') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('settlement') ||
+        joined.contains('urban') ||
+        joined.contains('ville') ||
+        joined.contains('habitat') ||
+        joined.contains('rural') ||
+        joined.contains('cbd') ||
+        joined.contains('suburb') ||
+        joined.contains('banlieue') ||
+        joined.contains('population') ||
+        joined.contains('hinterland') ||
+        joined.contains('zonage') ||
+        joined.contains('zoning') ||
+        joined.contains('exode rural') ||
+        joined.contains('démograph') ||
+        joined.contains('demograph');
+  }
+
+  bool _isEconomicsBankingStageTopic() {
+    final env = scene.environment.toLowerCase();
+    if (env == 'commerce' || env == 'economy' || env == 'banking' || env == 'finance') return true;
+    final joined = [
+      simTitle,
+      step.title,
+      step.action,
+      step.visualModel,
+      step.outcome,
+      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
+    ].join(' ').toLowerCase();
+
+    return joined.contains('money') ||
+        joined.contains('monnaie') ||
+        joined.contains('bank') ||
+        joined.contains('banque') ||
+        joined.contains('credit') ||
+        joined.contains('crédit') ||
+        joined.contains('inflation') ||
+        joined.contains('interest') ||
+        joined.contains('liquidity') ||
+        joined.contains('liquidité') ||
+        joined.contains('central bank') ||
+        joined.contains('banque centrale') ||
+        joined.contains('comptabilit') ||
+        joined.contains('accounting') ||
+        joined.contains('taux d\'intérêt');
+  }
+
+  void _paintLanguageStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Studio / Classroom interactive background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F2537)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    // Subtle dialogue grid in background
+    final gridPaint = Paint()
+      ..color = const Color(0xFF334155).withAlpha(40)
+      ..strokeWidth = 1.0;
+    for (double x = 20; x < w; x += 30) {
+      canvas.drawLine(Offset(x, 0), Offset(x, h), gridPaint);
+    }
+
+    // 2. Student A (Left Speaker, x: w * 0.20, y: h * 0.54)
+    final sAx = w * 0.20;
+    final sAy = h * 0.54;
+    final isSpeakerA = (t % 1.0) < 0.5;
+
+    // Student A body / torso
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(sAx, sAy + 22), width: 44, height: 42),
+        const Radius.circular(10),
+      ),
+      Paint()..color = const Color(0xFF1D4ED8),
+    );
+    // Student A head
+    canvas.drawCircle(Offset(sAx, sAy - 6), 16, Paint()..color = const Color(0xFF93C5FD));
+    canvas.drawCircle(Offset(sAx, sAy - 6), 16, Paint()..color = const Color(0xFF1E40AF)..style = PaintingStyle.stroke..strokeWidth = 2.0);
+    // Student A hair
+    final hairA = Path()
+      ..addArc(Rect.fromCircle(center: Offset(sAx, sAy - 10), radius: 16), math.pi, math.pi);
+    canvas.drawPath(hairA, Paint()..color = const Color(0xFF1E293B));
+
+    // Speech ripples emerging from Student A when speaking
+    if (isSpeakerA) {
+      final ripplePaint = Paint()
+        ..color = const Color(0xFF38BDF8).withAlpha((120 + 130 * math.sin(t * 8).abs()).clamp(0, 255).round())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round;
+      for (int i = 1; i <= 3; i++) {
+        canvas.drawArc(
+          Rect.fromCircle(center: Offset(sAx + 16, sAy - 6), radius: 10.0 * i + (math.sin(t * 8) * 3)),
+          -math.pi / 4,
+          math.pi / 2,
+          false,
+          ripplePaint,
+        );
+      }
+    }
+
+    _drawLabel(
+      canvas,
+      size,
+      'Élève A (Locuteur)',
+      Offset(sAx, sAy + 52),
+      Colors.white,
+      borderColor: const Color(0xFF38BDF8),
+    );
+
+    // 3. Student B (Right Interlocutor, x: w * 0.80, y: h * 0.54)
+    final sBx = w * 0.80;
+    final sBy = h * 0.54;
+    final isSpeakerB = !isSpeakerA;
+
+    // Student B body / torso
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(sBx, sBy + 22), width: 44, height: 42),
+        const Radius.circular(10),
+      ),
+      Paint()..color = const Color(0xFF047857),
+    );
+    // Student B head
+    canvas.drawCircle(Offset(sBx, sBy - 6), 16, Paint()..color = const Color(0xFF6EE7B7));
+    canvas.drawCircle(Offset(sBx, sBy - 6), 16, Paint()..color = const Color(0xFF065F46)..style = PaintingStyle.stroke..strokeWidth = 2.0);
+    // Student B hair
+    final hairB = Path()
+      ..addArc(Rect.fromCircle(center: Offset(sBx, sBy - 10), radius: 16), math.pi, math.pi);
+    canvas.drawPath(hairB, Paint()..color = const Color(0xFF0F172A));
+
+    // Speech ripples emerging from Student B when speaking
+    if (isSpeakerB) {
+      final ripplePaintB = Paint()
+        ..color = const Color(0xFF34D399).withAlpha((120 + 130 * math.sin(t * 8).abs()).clamp(0, 255).round())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round;
+      for (int i = 1; i <= 3; i++) {
+        canvas.drawArc(
+          Rect.fromCircle(center: Offset(sBx - 16, sBy - 6), radius: 10.0 * i + (math.sin(t * 8) * 3)),
+          3 * math.pi / 4,
+          math.pi / 2,
+          false,
+          ripplePaintB,
+        );
+      }
+    }
+
+    _drawLabel(
+      canvas,
+      size,
+      'Élève B (Interlocuteur)',
+      Offset(sBx, sBy + 52),
+      Colors.white,
+      borderColor: const Color(0xFF34D399),
+    );
+
+    // 4. Central Dialogue / Communication Cloud (x: w * 0.50, y: h * 0.36)
+    final cX = w * 0.50;
+    final cY = h * 0.36;
+    final cloudW = (w * 0.44).clamp(150.0, 220.0);
+    final cloudH = 58.0;
+
+    // Glowing speech bubble shadow
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cX, cY), width: cloudW, height: cloudH),
+        const Radius.circular(16),
+      ),
+      Paint()..color = const Color(0xFF38BDF8).withAlpha(45),
+    );
+
+    // White dialogue bubble body
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cX, cY), width: cloudW, height: cloudH),
+        const Radius.circular(16),
+      ),
+      Paint()..color = Colors.white,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cX, cY), width: cloudW, height: cloudH),
+        const Radius.circular(16),
+      ),
+      Paint()
+        ..color = isSpeakerA ? const Color(0xFF0284C7) : const Color(0xFF059669)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4,
+    );
+
+    // Pointer tail towards active speaker
+    final tailPath = Path();
+    if (isSpeakerA) {
+      tailPath.moveTo(cX - cloudW * 0.25, cY + cloudH * 0.50);
+      tailPath.lineTo(cX - cloudW * 0.38, cY + cloudH * 0.50 + 12);
+      tailPath.lineTo(cX - cloudW * 0.15, cY + cloudH * 0.50);
+    } else {
+      tailPath.moveTo(cX + cloudW * 0.15, cY + cloudH * 0.50);
+      tailPath.lineTo(cX + cloudW * 0.38, cY + cloudH * 0.50 + 12);
+      tailPath.lineTo(cX + cloudW * 0.25, cY + cloudH * 0.50);
+    }
+    tailPath.close();
+    canvas.drawPath(tailPath, Paint()..color = Colors.white);
+    canvas.drawPath(
+      tailPath,
+      Paint()
+        ..color = isSpeakerA ? const Color(0xFF0284C7) : const Color(0xFF059669)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+
+    // Dialogue text inside bubble
+    final bubbleTitle = isSpeakerA ? 'Élève A : Salutation / Question' : 'Élève B : Réponse / Compréhension';
+    final bubbleSub = isSpeakerA ? '« 你好 ! / Bonjour mon ami »' : '« Échange fluide & Vocabulaire »';
+    _drawLabel(canvas, size, bubbleTitle, Offset(cX, cY - 8), const Color(0xFF0F172A), borderColor: Colors.transparent);
+    _drawLabel(canvas, size, bubbleSub, Offset(cX, cY + 12), const Color(0xFF2563EB), borderColor: Colors.transparent);
+
+    // 5. Flowing conversation particles between students
+    final flowProgress = (t * 2) % 1.0;
+    final particleStartX = isSpeakerA ? sAx + 25 : sBx - 25;
+    final particleEndX = isSpeakerA ? sBx - 25 : sAx + 25;
+    final currX = particleStartX + (particleEndX - particleStartX) * flowProgress;
+    final currY = cY + math.sin(flowProgress * math.pi) * 18;
+
+    canvas.drawCircle(
+      Offset(currX, currY),
+      5.0 * intensity,
+      Paint()..color = isSpeakerA ? const Color(0xFF0284C7) : const Color(0xFF10B981),
+    );
+    canvas.drawCircle(
+      Offset(currX, currY),
+      9.0 * intensity,
+      Paint()..color = (isSpeakerA ? const Color(0xFF38BDF8) : const Color(0xFF34D399)).withAlpha(90),
+    );
+
+    // 6. Bottom Banner
+    _drawLabel(
+      canvas,
+      size,
+      'Pratique communicative interactive • Échange actif entre pairs',
+      Offset(w * 0.50, h * 0.88),
+      const Color(0xFFD1FAE5),
+      borderColor: const Color(0xFF10B981),
+    );
+  }
+
+  void _paintNuclearRadioactivityStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Deep space / Nuclear dark lab background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0A0F1D), Color(0xFF111827), Color(0xFF1E1B4B)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    // 2. Unstable Heavy Nucleus (cx: w * 0.32, cy: h * 0.50)
+    final jitter = math.sin(t * 16) * 2.0 * intensity;
+    final nX = w * 0.32 + jitter;
+    final nY = h * 0.50;
+
+    // Radioactive glowing core halo
+    canvas.drawCircle(
+      Offset(nX, nY),
+      44 * (1.0 + 0.15 * math.sin(t * 8)),
+      Paint()..color = const Color(0xFFEF4444).withAlpha(50),
+    );
+
+    // Nucleus cluster: protons (red) and neutrons (blue)
+    final clusterOffsets = [
+      Offset(-12, -10), Offset(6, -14), Offset(14, 2), Offset(0, 14),
+      Offset(-14, 8), Offset(0, 0), Offset(-6, -4), Offset(8, 8),
+    ];
+    for (int i = 0; i < clusterOffsets.length; i++) {
+      final isProton = i.isEven;
+      final pos = Offset(nX + clusterOffsets[i].dx, nY + clusterOffsets[i].dy);
+      canvas.drawCircle(
+        pos,
+        8.5,
+        Paint()..color = isProton ? const Color(0xFFEF4444) : const Color(0xFF38BDF8),
+      );
+      canvas.drawCircle(
+        pos,
+        8.5,
+        Paint()..color = Colors.white.withAlpha(160)..style = PaintingStyle.stroke..strokeWidth = 1.0,
+      );
+    }
+
+    _drawLabel(
+      canvas,
+      size,
+      'Noyau Instable (Parent)',
+      Offset(nX, nY + 48),
+      Colors.white,
+      borderColor: const Color(0xFFEF4444),
+    );
+
+    // 3. Emitted Particles flying towards detection screen
+    final emitProg = (t * 1.5) % 1.0;
+
+    // A. Alpha Particle (Helium Nucleus 2p + 2n) flying top-right
+    final aX = nX + 25 + (w * 0.52 * emitProg);
+    final aY = nY - 8 - (h * 0.24 * emitProg);
+    canvas.drawCircle(Offset(aX, aY), 10, Paint()..color = const Color(0xFFF59E0B));
+    canvas.drawCircle(Offset(aX, aY), 15, Paint()..color = const Color(0xFFFBBF24).withAlpha(80));
+    _drawLabel(
+      canvas,
+      size,
+      'Particule Alpha (α) : 2p+2n',
+      Offset(w * 0.65, h * 0.20),
+      const Color(0xFFFEF3C7),
+      borderColor: const Color(0xFFF59E0B),
+    );
+
+    // B. Beta Particle (High-speed electron) flying straight right
+    final bX = nX + 30 + (w * 0.50 * emitProg);
+    final bY = nY;
+    canvas.drawCircle(Offset(bX, bY), 6, Paint()..color = const Color(0xFF06B6D4));
+    // Electron spark wake
+    canvas.drawLine(
+      Offset(bX - 22, bY),
+      Offset(bX, bY),
+      Paint()..color = const Color(0xFF22D3EE)..strokeWidth = 3.0..strokeCap = StrokeCap.round,
+    );
+    _drawLabel(
+      canvas,
+      size,
+      'Rayonnement Bêta (β⁻) : Électron',
+      Offset(w * 0.65, h * 0.46),
+      const Color(0xFFCFFAFE),
+      borderColor: const Color(0xFF06B6D4),
+    );
+
+    // C. Gamma Wave (High frequency electromagnetic wave)
+    final gPath = Path();
+    final gStartX = nX + 30;
+    final gEndX = w * 0.86;
+    final gBaseY = nY + 36;
+    for (double x = gStartX; x <= gEndX; x += 3) {
+      final y = gBaseY + math.sin((x - gStartX) * 0.15 - t * 14) * 8.0;
+      if (x == gStartX) {
+        gPath.moveTo(x, y);
+      } else {
+        gPath.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+      gPath,
+      Paint()
+        ..color = const Color(0xFFA855F7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4,
+    );
+    _drawLabel(
+      canvas,
+      size,
+      'Rayon Gamma (γ) : Photon pur',
+      Offset(w * 0.65, h * 0.74),
+      const Color(0xFFF3E8FF),
+      borderColor: const Color(0xFFA855F7),
+    );
+
+    // 4. Right Detection Screen / Becquerel Photographic Plate
+    final screenX = w * 0.90;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(screenX, h * 0.50), width: 14, height: h * 0.76),
+        const Radius.circular(6),
+      ),
+      Paint()..color = const Color(0xFF64748B),
+    );
+    _drawLabel(
+      canvas,
+      size,
+      'Plaque Détecteur',
+      Offset(screenX, h * 0.92),
+      const Color(0xFFE2E8F0),
+      borderColor: const Color(0xFF64748B),
+    );
+  }
+
+  void _paintAgricultureStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Natural pasture background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF064E3B), Color(0xFF065F46), Color(0xFF042F2C)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    // 2. Shelter / Pen (x: w * 0.22, y: h * 0.52)
+    final pX = w * 0.22;
+    final pY = h * 0.52;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(pX, pY), width: 58, height: 50), const Radius.circular(8)),
+      Paint()..color = const Color(0xFFD97706).withAlpha(180),
+    );
+    _drawLabel(canvas, size, 'Enclos & Abri sain', Offset(pX, pY + 40), Colors.white, borderColor: const Color(0xFFF59E0B));
+
+    // 3. Healthy Livestock subject (x: w * 0.52, y: h * 0.50)
+    final aX = w * 0.52;
+    final aY = h * 0.50;
+    canvas.drawCircle(Offset(aX, aY), 28, Paint()..color = const Color(0xFF10B981));
+    canvas.drawCircle(Offset(aX, aY), 36, Paint()..color = const Color(0xFF34D399).withAlpha(60));
+    _drawLabel(canvas, size, 'Sujet Sain (Race choisie)', Offset(aX, aY + 44), const Color(0xFFDCFCE7), borderColor: const Color(0xFF10B981));
+
+    // 4. Feed & Water trough (x: w * 0.82, y: h * 0.52)
+    final tX = w * 0.82;
+    final tY = h * 0.52;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(tX, tY), width: 52, height: 38), const Radius.circular(6)),
+      Paint()..color = const Color(0xFF2563EB),
+    );
+    _drawLabel(canvas, size, 'Alimentation & Soins', Offset(tX, tY + 40), Colors.white, borderColor: const Color(0xFF3B82F6));
+
+    // 5. Feeding / Care particles flowing from trough to livestock
+    final flow = (t * 1.5) % 1.0;
+    final fx = tX - (tX - aX) * flow;
+    final fy = tY + math.sin(flow * math.pi) * 8;
+    canvas.drawCircle(Offset(fx, fy), 4.5, Paint()..color = const Color(0xFFFBBF24));
+  }
+
   final SimulationScene scene;
   final SimulationStep step;
   final String simTitle;
@@ -2619,10 +3465,530 @@ class _VirtualSimulationPainter extends CustomPainter {
     return generated;
   }
 
+  void _paintHistoryStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Vintage War-Room / Strategic Map background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1C1917), Color(0xFF292524), Color(0xFF0C0A09)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    // Vintage tactical coordinate grid
+    final gridPaint = Paint()
+      ..color = const Color(0xFF78716C).withAlpha(35)
+      ..strokeWidth = 1.0;
+    for (double x = 20; x < w; x += 36) {
+      canvas.drawLine(Offset(x, 0), Offset(x, h), gridPaint);
+    }
+    for (double y = 20; y < h; y += 36) {
+      canvas.drawLine(Offset(0, y), Offset(w, y), gridPaint);
+    }
+
+    // Compass rose in top corner
+    final compassCenter = Offset(w * 0.88, h * 0.16);
+    final compassPaint = Paint()
+      ..color = const Color(0xFFF59E0B).withAlpha(90)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+    canvas.drawCircle(compassCenter, 14, compassPaint);
+    canvas.drawLine(Offset(compassCenter.dx, compassCenter.dy - 16), Offset(compassCenter.dx, compassCenter.dy + 16), compassPaint);
+    canvas.drawLine(Offset(compassCenter.dx - 16, compassCenter.dy), Offset(compassCenter.dx + 16, compassCenter.dy), compassPaint);
+
+    // 2. West / Allied Bloc (Left territory, x: w * 0.22, y: h * 0.48)
+    final aX = w * 0.22;
+    final aY = h * 0.48;
+    canvas.drawCircle(
+      Offset(aX, aY),
+      38,
+      Paint()..color = const Color(0xFF2563EB).withAlpha(45),
+    );
+    final allyRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(aX, aY), width: 56, height: 50),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(allyRect, Paint()..color = const Color(0xFF1E3A8A));
+    canvas.drawRRect(
+      allyRect,
+      Paint()
+        ..color = const Color(0xFF60A5FA)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+    canvas.drawCircle(Offset(aX, aY), 8, Paint()..color = const Color(0xFF93C5FD));
+
+    _drawLabel(
+      canvas,
+      size,
+      'Alliés / Grand Alliance\n(UK, USA, USSR)',
+      Offset(aX, aY + 44),
+      Colors.white,
+      borderColor: const Color(0xFF3B82F6),
+    );
+
+    // 3. East / Axis Bloc (Right territory, x: w * 0.78, y: h * 0.48)
+    final bX = w * 0.78;
+    final bY = h * 0.48;
+    canvas.drawCircle(
+      Offset(bX, bY),
+      38,
+      Paint()..color = const Color(0xFFDC2626).withAlpha(45),
+    );
+    final axisRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(bX, bY), width: 56, height: 50),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(axisRect, Paint()..color = const Color(0xFF7F1D1D));
+    canvas.drawRRect(
+      axisRect,
+      Paint()
+        ..color = const Color(0xFFF87171)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+    canvas.drawCircle(Offset(bX, bY), 8, Paint()..color = const Color(0xFFFCA5A5));
+
+    _drawLabel(
+      canvas,
+      size,
+      'Axe / Axis Powers\n(Berlin-Rome-Tokyo)',
+      Offset(bX, bY + 44),
+      Colors.white,
+      borderColor: const Color(0xFFEF4444),
+    );
+
+    // 4. Central Frontline & Demarcation Line
+    final fX = w * 0.50;
+    final dashPaint = Paint()
+      ..color = const Color(0xFFF59E0B)
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    for (double y = h * 0.24; y < h * 0.74; y += 12) {
+      canvas.drawLine(Offset(fX, y), Offset(fX, y + 6), dashPaint);
+    }
+
+    final arrowOffset = (t * 40) % 60 - 30;
+    final arrowHeadPaint = Paint()
+      ..color = const Color(0xFF38BDF8)
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(aX + 32, aY - 14),
+      Offset(fX + arrowOffset, aY - 14),
+      arrowHeadPaint,
+    );
+    canvas.drawLine(
+      Offset(fX + arrowOffset, aY - 14),
+      Offset(fX + arrowOffset - 8, aY - 20),
+      arrowHeadPaint,
+    );
+    canvas.drawLine(
+      Offset(fX + arrowOffset, aY - 14),
+      Offset(fX + arrowOffset - 8, aY - 8),
+      arrowHeadPaint,
+    );
+
+    final counterPaint = Paint()
+      ..color = const Color(0xFFF87171)
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(bX - 32, aY + 14),
+      Offset(fX - arrowOffset, aY + 14),
+      counterPaint,
+    );
+    canvas.drawLine(
+      Offset(fX - arrowOffset, aY + 14),
+      Offset(fX - arrowOffset + 8, aY + 8),
+      counterPaint,
+    );
+    canvas.drawLine(
+      Offset(fX - arrowOffset, aY + 14),
+      Offset(fX - arrowOffset + 8, aY + 20),
+      counterPaint,
+    );
+
+    _drawLabel(
+      canvas,
+      size,
+      'Frontline / Ligne de Front',
+      Offset(fX, h * 0.22),
+      const Color(0xFFFEF3C7),
+      borderColor: const Color(0xFFF59E0B),
+    );
+
+    // Turning Point Pulsing Beacon in Center
+    final pulseRadius = 14 + 6 * math.sin(t * 6).abs();
+    canvas.drawCircle(
+      Offset(fX, aY),
+      pulseRadius,
+      Paint()
+        ..color = const Color(0xFFF59E0B).withAlpha((140 - pulseRadius * 4).clamp(0, 255).round())
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+    canvas.drawCircle(Offset(fX, aY), 6, Paint()..color = const Color(0xFFF59E0B));
+
+    // Bottom Accords / Post-War Settlement Ribbon
+    final bottomTitle = step.action.isNotEmpty && step.action.length < 42
+        ? step.action
+        : (step.title.isNotEmpty ? step.title : 'Conférences de Paix & Traités (1939-1945)');
+    _drawLabel(
+      canvas,
+      size,
+      bottomTitle,
+      Offset(w * 0.50, h * 0.84),
+      const Color(0xFFF8FAFC),
+      borderColor: const Color(0xFF10B981),
+    );
+  }
+
+  void _paintUrbanGeographyStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. Cartographic Blueprint Background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0B192C), Color(0xFF1E293B), Color(0xFF0F172A)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    final cX = w * 0.50;
+    final cY = h * 0.46;
+
+    // 2. Concentric Urban Zones (Burgess / Hoyt Model rings)
+    // Zone 4: Rural Hinterland / Zone Rurale (Outer ring)
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.44,
+      Paint()..color = const Color(0xFF15803D).withAlpha(30),
+    );
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.44,
+      Paint()
+        ..color = const Color(0xFF22C55E).withAlpha(80)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // Zone 3: Residential Suburbs / Banlieues Résidentielles
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.32,
+      Paint()..color = const Color(0xFF0284C7).withAlpha(35),
+    );
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.32,
+      Paint()
+        ..color = const Color(0xFF38BDF8).withAlpha(90)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8,
+    );
+
+    // Zone 2: Industrial & Transition Zone
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.20,
+      Paint()..color = const Color(0xFFF59E0B).withAlpha(35),
+    );
+    canvas.drawCircle(
+      Offset(cX, cY),
+      w * 0.20,
+      Paint()
+        ..color = const Color(0xFFFBBF24).withAlpha(110)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+
+    // Transport Arteries radiating outwards (Highways)
+    final roadPaint = Paint()
+      ..color = const Color(0xFF94A3B8).withAlpha(120)
+      ..strokeWidth = 2.8
+      ..strokeCap = StrokeCap.round;
+    for (int i = 0; i < 4; i++) {
+      final angle = i * math.pi / 2 + (math.pi / 4);
+      final ex = cX + math.cos(angle) * (w * 0.42);
+      final ey = cY + math.sin(angle) * (w * 0.42);
+      canvas.drawLine(Offset(cX, cY), Offset(ex, ey), roadPaint);
+
+      // Moving transit particles along highways towards/from CBD
+      final progress = ((t * 0.8) + (i * 0.25)) % 1.0;
+      final px = cX + (ex - cX) * progress;
+      final py = cY + (ey - cY) * progress;
+      canvas.drawCircle(
+        Offset(px, py),
+        3.5,
+        Paint()..color = const Color(0xFF38BDF8),
+      );
+    }
+
+    // 3. Central Business District (CBD) Skyscraper cluster at center
+    final bldgPaint1 = Paint()..color = const Color(0xFF1E3A8A);
+    final bldgPaint2 = Paint()..color = const Color(0xFF2563EB);
+    final bldgPaint3 = Paint()..color = const Color(0xFF3B82F6);
+    final bldgBorder = Paint()
+      ..color = const Color(0xFF93C5FD)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    // Center skyscraper
+    final centerTower = Rect.fromLTWH(cX - 12, cY - 32, 24, 46);
+    canvas.drawRect(centerTower, bldgPaint3);
+    canvas.drawRect(centerTower, bldgBorder);
+    // Skyscraper windows
+    final winPaint = Paint()..color = const Color(0xFFFEF08A);
+    for (double wy = cY - 26; wy < cY + 8; wy += 7) {
+      canvas.drawRect(Rect.fromLTWH(cX - 8, wy, 5, 4), winPaint);
+      canvas.drawRect(Rect.fromLTWH(cX + 3, wy, 5, 4), winPaint);
+    }
+
+    // Left tower
+    final leftTower = Rect.fromLTWH(cX - 28, cY - 20, 16, 34);
+    canvas.drawRect(leftTower, bldgPaint1);
+    canvas.drawRect(leftTower, bldgBorder);
+
+    // Right tower
+    final rightTower = Rect.fromLTWH(cX + 12, cY - 24, 16, 38);
+    canvas.drawRect(rightTower, bldgPaint2);
+    canvas.drawRect(rightTower, bldgBorder);
+
+    // CBD Glow
+    canvas.drawCircle(
+      Offset(cX, cY - 10),
+      32,
+      Paint()
+        ..color = const Color(0xFF38BDF8).withAlpha(45)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+
+    // Sector Labels & Hierarchy Tags
+    _drawLabel(
+      canvas,
+      size,
+      'CBD (Centre Urbain / Forte Densité)',
+      Offset(cX, cY + 28),
+      const Color(0xFFDBEAFE),
+      borderColor: const Color(0xFF3B82F6),
+    );
+
+    _drawLabel(
+      canvas,
+      size,
+      'Banlieue Résidentielle',
+      Offset(w * 0.18, h * 0.16),
+      Colors.white,
+      borderColor: const Color(0xFF0284C7),
+    );
+
+    _drawLabel(
+      canvas,
+      size,
+      'Hinterland Rural (Approvisionnement)',
+      Offset(w * 0.72, h * 0.82),
+      const Color(0xFFDCFCE7),
+      borderColor: const Color(0xFF16A34A),
+    );
+
+    // Bottom step annotation banner
+    final titleLabel = step.title.isNotEmpty ? step.title : 'Organisation spatiale & Modèle de peuplement';
+    _drawLabel(
+      canvas,
+      size,
+      titleLabel,
+      Offset(w * 0.50, h * 0.92),
+      const Color(0xFFFEF08A),
+      borderColor: const Color(0xFFF59E0B),
+    );
+  }
+
+  void _paintEconomicsBankingStage(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // 1. FinTech / Monetary Grid Background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, h), const Radius.circular(16)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0A1128), Color(0xFF001F54), Color(0xFF034078)],
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
+
+    // Economic growth graph line in background
+    final trendPaint = Paint()
+      ..color = const Color(0xFF10B981).withAlpha(45)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+    final trendPath = Path();
+    trendPath.moveTo(10, h * 0.70);
+    trendPath.quadraticBezierTo(w * 0.35, h * 0.65, w * 0.60, h * 0.45);
+    trendPath.lineTo(w - 10, h * 0.25);
+    canvas.drawPath(trendPath, trendPaint);
+
+    // 2. Node 1: Central Bank / Banque Centrale (Left, x: w * 0.18, y: h * 0.46)
+    final b1X = w * 0.18;
+    final b1Y = h * 0.46;
+    final b1Rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(b1X, b1Y), width: 56, height: 52),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(b1Rect, Paint()..color = const Color(0xFF78350F));
+    canvas.drawRRect(
+      b1Rect,
+      Paint()
+        ..color = const Color(0xFFFBBF24)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+    // Vault / Column symbol
+    canvas.drawRect(Rect.fromLTWH(b1X - 16, b1Y - 14, 32, 5), Paint()..color = const Color(0xFFFDE68A));
+    canvas.drawLine(Offset(b1X - 12, b1Y - 9), Offset(b1X - 12, b1Y + 12), Paint()..color = const Color(0xFFFDE68A)..strokeWidth = 3);
+    canvas.drawLine(Offset(b1X, b1Y - 9), Offset(b1X, b1Y + 12), Paint()..color = const Color(0xFFFDE68A)..strokeWidth = 3);
+    canvas.drawLine(Offset(b1X + 12, b1Y - 9), Offset(b1X + 12, b1Y + 12), Paint()..color = const Color(0xFFFDE68A)..strokeWidth = 3);
+    canvas.drawRect(Rect.fromLTWH(b1X - 16, b1Y + 12, 32, 5), Paint()..color = const Color(0xFFFDE68A));
+
+    _drawLabel(
+      canvas,
+      size,
+      'Banque Centrale\n(Taux & Réserves)',
+      Offset(b1X, b1Y + 44),
+      Colors.white,
+      borderColor: const Color(0xFFF59E0B),
+    );
+
+    // 3. Node 2: Commercial Banks / Banques Commerciales (Center, x: w * 0.50, y: h * 0.46)
+    final b2X = w * 0.50;
+    final b2Y = h * 0.46;
+    final b2Rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(b2X, b2Y), width: 62, height: 56),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(b2Rect, Paint()..color = const Color(0xFF1E3A8A));
+    canvas.drawRRect(
+      b2Rect,
+      Paint()
+        ..color = const Color(0xFF60A5FA)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+
+    // Multiplier circle
+    canvas.drawCircle(
+      Offset(b2X, b2Y),
+      14,
+      Paint()
+        ..color = const Color(0xFF3B82F6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+    _drawLabel(
+      canvas,
+      size,
+      '1/r',
+      Offset(b2X, b2Y),
+      const Color(0xFF93C5FD),
+    );
+
+    _drawLabel(
+      canvas,
+      size,
+      'Banques Commerciales\n(Création Monétaire)',
+      Offset(b2X, b2Y + 44),
+      Colors.white,
+      borderColor: const Color(0xFF3B82F6),
+    );
+
+    // 4. Node 3: Real Economy / Ménages & Entreprises (Right, x: w * 0.82, y: h * 0.46)
+    final b3X = w * 0.82;
+    final b3Y = h * 0.46;
+    final b3Rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(b3X, b3Y), width: 56, height: 52),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(b3Rect, Paint()..color = const Color(0xFF064E3B));
+    canvas.drawRRect(
+      b3Rect,
+      Paint()
+        ..color = const Color(0xFF34D399)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+
+    canvas.drawCircle(Offset(b3X, b3Y), 10, Paint()..color = const Color(0xFF6EE7B7));
+
+    _drawLabel(
+      canvas,
+      size,
+      'Économie Réelle\n(Marchés & Crédit)',
+      Offset(b3X, b3Y + 44),
+      Colors.white,
+      borderColor: const Color(0xFF10B981),
+    );
+
+    // Animated Money / Liquidity Flows
+    final flowProgress1 = (t * 1.2) % 1.0;
+    final coin1X = b1X + 28 + (b2X - b1X - 56) * flowProgress1;
+    final coin1Y = b1Y - 14 + math.sin(flowProgress1 * math.pi) * -12;
+    canvas.drawCircle(Offset(coin1X, coin1Y), 6, Paint()..color = const Color(0xFFFBBF24));
+    canvas.drawCircle(Offset(coin1X, coin1Y), 6, Paint()..color = Colors.amber..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+    final flowProgress2 = ((t * 1.2) + 0.5) % 1.0;
+    final coin2X = b2X + 31 + (b3X - b2X - 60) * flowProgress2;
+    final coin2Y = b2Y - 14 + math.sin(flowProgress2 * math.pi) * -12;
+    canvas.drawCircle(Offset(coin2X, coin2Y), 6, Paint()..color = const Color(0xFF34D399));
+    canvas.drawCircle(Offset(coin2X, coin2Y), 6, Paint()..color = Colors.green..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+    // Connector arrows between nodes
+    final flowArrowPaint = Paint()
+      ..color = const Color(0xFF94A3B8).withAlpha(120)
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(b1X + 28, b1Y - 8), Offset(b2X - 31, b1Y - 8), flowArrowPaint);
+    canvas.drawLine(Offset(b2X + 31, b2Y - 8), Offset(b3X - 28, b2Y - 8), flowArrowPaint);
+
+    // Top flow banner
+    final titleBanner = step.title.isNotEmpty ? step.title : 'Circuit Monétaire & Multiplicateur de Crédit';
+    _drawLabel(
+      canvas,
+      size,
+      titleBanner,
+      Offset(w * 0.50, h * 0.14),
+      const Color(0xFFFEF08A),
+      borderColor: const Color(0xFFF59E0B),
+    );
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     _placedLabels.clear();
 
+    if (_isLanguageTopic()) {
+      _paintLanguageStage(canvas, size);
+      return;
+    }
+    if (_isNuclearRadioactivityTopic()) {
+      _paintNuclearRadioactivityStage(canvas, size);
+      return;
+    }
+    if (_isAgricultureTopic()) {
+      _paintAgricultureStage(canvas, size);
+      return;
+    }
     if (_isPlantTopic()) {
       _paintFullPlantStage(canvas, size);
       return;
@@ -2637,6 +4003,18 @@ class _VirtualSimulationPainter extends CustomPainter {
     }
     if (_isEquationBalanceTopic()) {
       _paintMathBalanceStage(canvas, size);
+      return;
+    }
+    if (_isHistoryStageTopic()) {
+      _paintHistoryStage(canvas, size);
+      return;
+    }
+    if (_isUrbanGeographyStageTopic()) {
+      _paintUrbanGeographyStage(canvas, size);
+      return;
+    }
+    if (_isEconomicsBankingStageTopic()) {
+      _paintEconomicsBankingStage(canvas, size);
       return;
     }
 
@@ -3218,12 +4596,12 @@ class _VirtualSimulationPainter extends CustomPainter {
   bool _isWaveSoundTopic() {
     final env = scene.environment.toLowerCase();
     if (env == 'sound') return true;
+    if (env != 'physics' && env != 'wave') return false;
     final joined = [
       simTitle,
       step.title,
       step.action,
       step.outcome,
-      ...scene.objects.map((o) => '${o.sprite} ${o.label}'),
     ].join(' ').toLowerCase();
     return _waveWordRe.hasMatch(joined);
   }

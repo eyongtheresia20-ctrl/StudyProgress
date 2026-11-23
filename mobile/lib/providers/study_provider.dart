@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,9 @@ import '../services/api_service.dart';
 import '../services/background_service.dart';
 
 class StudyProvider extends ChangeNotifier {
+  static const String activePublicTunnel =
+      'https://maintaining-ruled-integration-drinking.trycloudflare.com';
+
   static String defaultBaseUrl() {
     if (kIsWeb ||
         defaultTargetPlatform == TargetPlatform.windows ||
@@ -14,28 +18,47 @@ class StudyProvider extends ChangeNotifier {
         defaultTargetPlatform == TargetPlatform.macOS) {
       return 'http://127.0.0.1:8000';
     }
-    return 'https://solaris-headlines-targeted-dive.trycloudflare.com';
+    return activePublicTunnel;
   }
 
-  static Future<String> _detectBestHost() async {
-    const candidates = [
-      'https://solaris-headlines-targeted-dive.trycloudflare.com',
-      'http://192.168.1.164:8000',
-      'http://127.0.0.1:8000',
-      'http://10.177.13.70:8000',
-    ];
-    for (final host in candidates) {
-      try {
-        final res = await http.get(
-          Uri.parse('$host/health'),
-          headers: {'Bypass-Tunnel-Reminder': 'true'},
-        ).timeout(const Duration(milliseconds: 1800));
-        if (res.statusCode == 200) {
-          return host;
-        }
-      } catch (_) {}
+  static Future<String> _detectBestHost([String? preferredHost]) async {
+    final list = <String>[];
+    if (preferredHost != null && preferredHost.trim().isNotEmpty) {
+      list.add(preferredHost.trim());
     }
-    return 'https://solaris-headlines-targeted-dive.trycloudflare.com';
+    list.addAll([
+      'http://127.0.0.1:8000',
+      activePublicTunnel,
+      'http://192.168.10.233:8000',
+      'http://192.168.1.164:8000',
+      'http://10.0.2.2:8000',
+    ]);
+
+    // Cloud-only: no slow probing of local hosts
+    if (ApiService.cloudOnly) return preferredHost ?? activePublicTunnel;
+    final candidates = list.toSet().toList();
+
+    try {
+      final futures = candidates.map((host) async {
+        try {
+          final res = await http.get(
+            Uri.parse('$host/health'),
+            headers: {'Bypass-Tunnel-Reminder': 'true'},
+          ).timeout(const Duration(milliseconds: 2500));
+          if (res.statusCode == 200) {
+            return host;
+          }
+        } catch (_) {}
+        return null;
+      });
+
+      final results = await Future.wait(futures);
+      for (final r in results) {
+        if (r != null) return r;
+      }
+    } catch (_) {}
+
+    return preferredHost ?? activePublicTunnel;
   }
 
   String _apiBaseUrl = defaultBaseUrl();
@@ -63,7 +86,7 @@ class StudyProvider extends ChangeNotifier {
   bool get isAuthenticated => _token != null && _user != null;
 
   ApiService get api =>
-      ApiService(_apiBaseUrl, token: _token, languageCode: _languageCode);
+      ApiService(_apiBaseUrl, token: _token, languageCode: _languageCode, currentUser: _user);
 
   Future<void> bootstrap() async {
     _isBootstrapping = true;
@@ -76,14 +99,21 @@ class StudyProvider extends ChangeNotifier {
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux ||
         defaultTargetPlatform == TargetPlatform.macOS;
+    final savedBase = prefs.getString(kPrefApiBaseUrl);
     if (isDesktopOrWeb) {
       _apiBaseUrl = 'http://127.0.0.1:8000';
     } else {
-      _apiBaseUrl = await _detectBestHost();
+      _apiBaseUrl = await _detectBestHost(savedBase);
     }
     _token = prefs.getString('auth_token');
     _languageCode = prefs.getString('app_language') ?? 'en';
     await prefs.setString(kPrefApiBaseUrl, _apiBaseUrl);
+    final cachedUser = prefs.getString('cached_user_json');
+    if (cachedUser != null) {
+      try {
+        _user = AppUser.fromJson(jsonDecode(cachedUser) as Map<String, dynamic>);
+      } catch (_) {}
+    }
 
     try {
       await loadSubsystems();
@@ -118,6 +148,20 @@ class StudyProvider extends ChangeNotifier {
     await loadSubsystems();
     notifyListeners();
   }
+
+  Future<bool> testConnection(String url) async {
+    try {
+      final clean = url.trim().replaceAll(RegExp(r'/+$'), '');
+      final res = await http.get(
+        Uri.parse('$clean/health'),
+        headers: {'Bypass-Tunnel-Reminder': 'true'},
+      ).timeout(const Duration(seconds: 4));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
 
   Future<void> loadSubsystems() async {
     try {
@@ -209,6 +253,7 @@ class StudyProvider extends ChangeNotifier {
     required int dailyGoalMinutes,
     required int reminderHour,
     required int reminderMinute,
+    List<String>? offeredSubjects,
   }) async {
     _setBusy(true);
     try {
@@ -230,6 +275,7 @@ class StudyProvider extends ChangeNotifier {
         dailyGoalMinutes: dailyGoalMinutes,
         reminderHour: reminderHour,
         reminderMinute: reminderMinute,
+        offeredSubjects: offeredSubjects,
       );
       _user = await api.getMe();
       await BackgroundService.scheduleDailyReminder(
@@ -449,6 +495,13 @@ class StudyProvider extends ChangeNotifier {
     await prefs.setString(kPrefApiBaseUrl, _apiBaseUrl);
     await prefs.setString('auth_token', token);
     await prefs.setInt(kPrefStudentId, user.id);
+    await prefs.setString('cached_user_json', jsonEncode({
+      'id': user.id,
+      'full_name': user.fullName,
+      'email': user.email,
+      'role': user.role,
+      'questionnaire_completed': user.questionnaireCompleted,
+    }));
   }
 
   void _setBusy(bool busy) {
@@ -491,4 +544,12 @@ class StudyProvider extends ChangeNotifier {
       ),
     ];
   }
+
+  Future<bool> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    return api.changePassword(oldPassword: oldPassword, newPassword: newPassword);
+  }
+
 }

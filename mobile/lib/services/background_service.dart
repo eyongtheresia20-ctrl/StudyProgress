@@ -1,3 +1,4 @@
+import 'cloud_extras.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -37,18 +38,9 @@ void studyBackgroundDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final baseUrl = prefs.getString(kPrefApiBaseUrl) ?? 'http://10.0.2.2:8000';
       final userId = prefs.getInt(kPrefStudentId) ?? 1;
-
-      final cleanBase = baseUrl.endsWith('/')
-          ? baseUrl.substring(0, baseUrl.length - 1)
-          : baseUrl;
-      final res = await http
-          .get(Uri.parse('$cleanBase/curriculum/background-digest/$userId'))
-          .timeout(const Duration(seconds: 12));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
+      {
+        final data = await CloudExtras().backgroundDigestForUserId(userId);
         final isSunday = data['is_sunday'] as bool? ?? false;
         final title = isSunday
             ? (data['sunday_title'] as String? ?? 'Kivora Weekly Briefing')
@@ -183,6 +175,37 @@ class BackgroundService {
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
     );
+  }
+
+  static Future<void> scheduleSubjectReminder({
+    required int id,
+    required String subjectName,
+    required String topicTitle,
+    required int hour,
+    required int minute,
+  }) async {
+    if (!isMobilePlatform) return;
+    final now = DateTime.now();
+    var target = DateTime(now.year, now.month, now.day, hour, minute);
+    if (target.isBefore(now)) {
+      target = target.add(const Duration(days: 1));
+    }
+
+    final scheduled = tz.TZDateTime.from(target.toUtc(), tz.UTC);
+    await _notificationsPlugin.zonedSchedule(
+      id: id,
+      title: 'Kivora · ' + subjectName + ' 📚',
+      body: 'Time to study ' + topicTitle + '. Tap to begin your lesson!',
+      scheduledDate: scheduled,
+      notificationDetails: _defaultNotificationDetails,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  static Future<void> cancelSubjectReminder(int id) async {
+    if (!isMobilePlatform) return;
+    await _notificationsPlugin.cancel(id: id);
   }
 
   static Future<void> cancelDailyReminder() async {

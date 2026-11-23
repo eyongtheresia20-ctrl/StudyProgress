@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/supabase_cloud_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,6 +21,8 @@ class QuestionnaireScreen extends StatefulWidget {
   @override
   State<QuestionnaireScreen> createState() => _QuestionnaireScreenState();
 }
+
+// cleanSubjectName imported from supabase_cloud_service.dart
 
 class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   static const Color _plumPrimary = Color(0xFF26145E);
@@ -86,6 +90,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   int? _subsystemId;
   int? _classId;
   int _age = 15;
+  final Set<String> _offeredSubjects = {};
   String _favouriteSubject = 'Mathématiques';
   final Set<String> _difficultSubjects = {'Physique'};
   String _difficultyReason = 'Comprendre les formules et les règles';
@@ -97,6 +102,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   String _preferredStudyPeriod = 'evening';
   int _dailyGoalMinutes = 60;
   TimeOfDay _reminderTime = const TimeOfDay(hour: 18, minute: 0);
+  int _weeklyProgramDay = 7; // 7 = Sunday, 1 = Monday
+  TimeOfDay _weeklyProgramTime = const TimeOfDay(hour: 18, minute: 0);
+  TimeOfDay _dailyProgramTime = const TimeOfDay(hour: 7, minute: 0);
   final _fullNameCtrl = TextEditingController();
   final _goalCtrl = TextEditingController();
   final _customHobbyCtrl = TextEditingController();
@@ -109,14 +117,21 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
       final api = context.read<StudyProvider>().api;
       final subs = await api.getClassSubjects(classId);
       if (mounted && subs.isNotEmpty) {
+        final cleaned = subs.map(cleanSubjectName).where((s) => s.length > 1).toSet().toList()..sort();
         setState(() {
-          _classSubjects = subs;
-          if (!_classSubjects.contains(_favouriteSubject)) {
-            _favouriteSubject = _classSubjects.first;
+          _classSubjects = cleaned;
+          if (_offeredSubjects.isEmpty) {
+            _offeredSubjects.addAll(_classSubjects);
+          } else {
+            _offeredSubjects.retainAll(_classSubjects);
+            if (_offeredSubjects.isEmpty) _offeredSubjects.addAll(_classSubjects);
           }
-          _difficultSubjects.retainAll(_classSubjects);
-          if (_difficultSubjects.isEmpty && _classSubjects.length > 1) {
-            _difficultSubjects.add(_classSubjects.length > 1 ? _classSubjects[1] : _classSubjects.first);
+          if (!_offeredSubjects.contains(_favouriteSubject)) {
+            _favouriteSubject = _offeredSubjects.isNotEmpty ? _offeredSubjects.first : (_classSubjects.isNotEmpty ? _classSubjects.first : '');
+          }
+          _difficultSubjects.retainAll(_offeredSubjects);
+          if (_difficultSubjects.isEmpty && _offeredSubjects.length > 1) {
+            _difficultSubjects.add(_offeredSubjects.length > 1 ? _offeredSubjects.elementAt(1) : _offeredSubjects.first);
           }
         });
       }
@@ -156,6 +171,11 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         return name;
       }
       
+      if (existing.offeredSubjects.isNotEmpty) {
+        _offeredSubjects
+          ..clear()
+          ..addAll(existing.offeredSubjects.map(cleanSubjectName).where((s) => s.length > 1));
+      }
       _favouriteSubject = mapSubj(existing.favouriteSubject ?? (_subsystemId == 2 ? 'Mathématiques' : 'Mathematics'));
       _difficultSubjects
         ..clear()
@@ -180,14 +200,26 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         hour: existing.reminderHour,
         minute: existing.reminderMinute,
       );
+      _weeklyProgramDay = existing.weeklyProgramDay;
+      _weeklyProgramTime = TimeOfDay(
+        hour: existing.weeklyProgramHour,
+        minute: existing.weeklyProgramMinute,
+      );
+      _dailyProgramTime = TimeOfDay(
+        hour: existing.dailyProgramHour,
+        minute: existing.dailyProgramMinute,
+      );
     }
     final homeSubjects = context.read<StudyProvider>().studentHome?.classSubjects;
     if (homeSubjects != null && homeSubjects.isNotEmpty) {
-      _classSubjects = List.from(homeSubjects);
+      _classSubjects = homeSubjects.map(cleanSubjectName).where((s) => s.length > 1).toSet().toList()..sort();
     } else if (_subsystemId == 2) {
       _classSubjects = List.from(_francophoneFallbackSubjects);
     } else if (_subsystemId == 1) {
       _classSubjects = List.from(_anglophoneFallbackSubjects);
+    }
+    if (_offeredSubjects.isEmpty && _classSubjects.isNotEmpty) {
+      _offeredSubjects.addAll(_classSubjects);
     }
     if (_classSubjects.isNotEmpty) {
       if (!_classSubjects.contains(_favouriteSubject)) {
@@ -229,6 +261,14 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     }
     setState(() => _error = null);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('weekly_program_day', _weeklyProgramDay);
+      await prefs.setInt('weekly_program_hour', _weeklyProgramTime.hour);
+      await prefs.setInt('weekly_program_minute', _weeklyProgramTime.minute);
+      await prefs.setInt('daily_program_hour', _dailyProgramTime.hour);
+      await prefs.setInt('daily_program_minute', _dailyProgramTime.minute);
+      await prefs.setStringList('offered_subjects', _offeredSubjects.toList());
+
       await provider.submitQuestionnaire(
         fullName: _fullNameCtrl.text.trim().isEmpty
             ? null
@@ -250,14 +290,27 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         dailyGoalMinutes: _dailyGoalMinutes,
         reminderHour: _reminderTime.hour,
         reminderMinute: _reminderTime.minute,
+        offeredSubjects: _offeredSubjects.toList(),
       );
       if (mounted && widget.isEditing) {
         Navigator.pop(context);
       }
     } catch (e) {
       if (!mounted) return;
+      final raw = e.toString().replaceFirst('Exception: ', '');
+      String msg = raw;
+      if (raw.contains('TimeoutException') ||
+          raw.contains('SocketException') ||
+          raw.contains('Server unreachable') ||
+          raw.contains('Connection refused') ||
+          raw.contains('ClientException')) {
+        final isFr = context.read<StudyProvider>().languageCode == 'fr' || _subsystemId == 2;
+        msg = isFr
+            ? 'Impossible de joindre le serveur. Veuillez vérifier votre connexion et réessayer.'
+            : 'Unable to connect to server. Please check your connection and retry.';
+      }
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = msg;
       });
     }
   }
@@ -648,29 +701,57 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         );
 
       case 3:
+        final cleanSubjs = _classSubjects.map(cleanSubjectName).where((s) => s.length > 1).toSet().toList()..sort();
+        if (_offeredSubjects.isEmpty && cleanSubjs.isNotEmpty) {
+          _offeredSubjects.addAll(cleanSubjs);
+        }
+        final availableOffered = cleanSubjs.where((s) => _offeredSubjects.contains(s)).toList();
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               isFr
-                  ? 'Vos matières fortes et vos défis'
-                  : 'Your subject strengths & challenges',
+                  ? 'Matières que vous étudiez / présentez'
+                  : 'Subjects you offer / study',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF1E293B),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               isFr
-                  ? 'Matières enseignées dans votre classe'
-                  : (_classSubjects.isNotEmpty
-                      ? 'Subjects taught in your selected class'
-                      : 'Select your subject preferences'),
+                  ? 'Cochez uniquement les matières que vous présentez (ex. En Lettres : décochez Chimie et Travail Manuel).'
+                  : 'Select only the subjects you actually take (e.g. Arts students uncheck Chemistry and Manual Labour).',
               style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _offeredSubjects.addAll(cleanSubjs);
+                    });
+                  },
+                  icon: const Icon(Icons.select_all_rounded, size: 16),
+                  label: Text(isFr ? 'Tout sélectionner' : 'Select all', style: const TextStyle(fontSize: 12)),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _offeredSubjects.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.deselect_rounded, size: 16),
+                  label: Text(isFr ? 'Tout désélectionner' : 'Clear all', style: const TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             if (_loadingSubjects)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
@@ -685,15 +766,65 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                   ],
                 ),
               ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: cleanSubjs.map((subj) {
+                final selected = _offeredSubjects.contains(subj);
+                return FilterChip(
+                  label: Text(subj),
+                  selected: selected,
+                  selectedColor: const Color(0xFFEDE9FE),
+                  checkmarkColor: _plumPrimary,
+                  labelStyle: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? _plumPrimary : const Color(0xFF334155),
+                  ),
+                  onSelected: (val) => setState(() {
+                    if (val) {
+                      _offeredSubjects.add(subj);
+                    } else {
+                      _offeredSubjects.remove(subj);
+                      if (_favouriteSubject == subj) {
+                        _favouriteSubject = _offeredSubjects.isNotEmpty ? _offeredSubjects.first : '';
+                      }
+                      _difficultSubjects.remove(subj);
+                    }
+                  }),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 18),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+            Text(
+              isFr
+                  ? 'Vos matières fortes et vos défis'
+                  : 'Your subject strengths & challenges',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isFr
+                  ? 'Parmi vos matières sélectionnées :'
+                  : 'Among your selected subjects:',
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               isExpanded: true,
-              value: _classSubjects.contains(_favouriteSubject)
+              value: availableOffered.contains(_favouriteSubject)
                   ? _favouriteSubject
-                  : (_classSubjects.isNotEmpty ? _classSubjects.first : null),
+                  : (availableOffered.isNotEmpty ? availableOffered.first : null),
               decoration: _dropdownDecoration(
                 isFr ? 'Matière que vous préférez' : 'Subject you enjoy the most',
               ),
-              items: _classSubjects
+              items: availableOffered
                   .map((s) => DropdownMenuItem(
                         value: s,
                         child: Text(s, overflow: TextOverflow.ellipsis),
@@ -718,7 +849,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _classSubjects.map((subj) {
+              children: availableOffered.map((subj) {
                 final selected = _difficultSubjects.contains(subj);
                 return FilterChip(
                   label: Text(subj),
@@ -915,9 +1046,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Study habits & your academic goal',
-              style: TextStyle(
+            Text(
+              isFr ? "Habitudes d'étude & objectif" : "Study habits & academic goal",
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF1E293B),
@@ -927,65 +1058,277 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
             DropdownButtonFormField<String>(
               initialValue: _preferredStudyPeriod,
               decoration:
-                  _dropdownDecoration('When do you prefer to study?'),
-              items: const [
-                DropdownMenuItem(value: 'morning', child: Text('Morning')),
-                DropdownMenuItem(value: 'afternoon', child: Text('Afternoon')),
-                DropdownMenuItem(value: 'evening', child: Text('Evening')),
+                  _dropdownDecoration(isFr ? "Quand préférez-vous étudier ?" : "When do you prefer to study?"),
+              items: [
+                DropdownMenuItem(value: 'morning', child: Text(isFr ? 'Matin' : 'Morning')),
+                DropdownMenuItem(value: 'afternoon', child: Text(isFr ? 'Après-midi' : 'Afternoon')),
+                DropdownMenuItem(value: 'evening', child: Text(isFr ? 'Soir' : 'Evening')),
+                DropdownMenuItem(value: 'night', child: Text(isFr ? 'Nuit' : 'Night')),
               ],
               onChanged: (v) {
                 if (v != null) setState(() => _preferredStudyPeriod = v);
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              initialValue: [30, 45, 60, 90, 120].contains(_dailyGoalMinutes)
-                  ? _dailyGoalMinutes
-                  : 60,
-              decoration: _dropdownDecoration('Daily study time'),
-              items: const [
-                DropdownMenuItem(value: 30, child: Text('30 minutes / day')),
-                DropdownMenuItem(value: 45, child: Text('45 minutes / day')),
-                DropdownMenuItem(value: 60, child: Text('1 hour / day')),
-                DropdownMenuItem(value: 90, child: Text('1.5 hours / day')),
-                DropdownMenuItem(value: 120, child: Text('2 hours / day')),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() => _dailyGoalMinutes = v);
-              },
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today_rounded, size: 18, color: _plumPrimary),
+                      const SizedBox(width: 8),
+                      Text(
+                        isFr ? "Programme de la semaine (Notification)" : "Weekly Programme Notification",
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    isFr
+                        ? "Jour et heure d'arrivée de la feuille de route de la semaine :"
+                        : "Day and time when your weekly roadmap notification arrives:",
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ChoiceChip(
+                        label: Text(isFr ? 'Dimanche (Recommandé)' : 'Sunday (Recommended)'),
+                        selected: _weeklyProgramDay == 7,
+                        selectedColor: _plumPrimary.withAlpha(25),
+                        onSelected: (_) => setState(() => _weeklyProgramDay = 7),
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: Text(isFr ? 'Lundi' : 'Monday'),
+                        selected: _weeklyProgramDay == 1,
+                        selectedColor: _plumPrimary.withAlpha(25),
+                        onSelected: (_) => setState(() => _weeklyProgramDay = 1),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: _plumPrimary.withAlpha(22),
+                      child: const Icon(Icons.schedule_rounded, color: _plumPrimary),
+                    ),
+                    title: Text(
+                      isFr ? "Heure d'arrivée du programme" : 'Weekly Program Arrival Time',
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                    ),
+                    subtitle: Text(
+                      isFr
+                          ? "${_weeklyProgramDay == 7 ? 'Chaque Dimanche' : 'Chaque Lundi'} à ${_weeklyProgramTime.format(context)}"
+                          : "${_weeklyProgramDay == 7 ? 'Every Sunday' : 'Every Monday'} at ${_weeklyProgramTime.format(context)}",
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                    trailing: TextButton.icon(
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _weeklyProgramTime,
+                        );
+                        if (picked != null) {
+                          setState(() => _weeklyProgramTime = picked);
+                        }
+                      },
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: Text(isFr ? 'Modifier' : 'Change'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: _plumPrimary.withAlpha(22),
+                  child: const Icon(Icons.notifications_active_rounded, color: _plumPrimary),
+                ),
+                title: Text(
+                  isFr ? "Heure d'envoi du Programme quotidien" : 'Daily Programme Notification Time',
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                ),
+                subtitle: Text(
+                  isFr
+                      ? "Chaque matin à ${_dailyProgramTime.format(context)} (Les 4 matières du jour)"
+                      : "Every morning at ${_dailyProgramTime.format(context)} (Today's 4 subjects)",
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+                trailing: TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: _dailyProgramTime,
+                    );
+                    if (picked != null) {
+                      setState(() => _dailyProgramTime = picked);
+                    }
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: Text(isFr ? 'Modifier' : 'Change'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.timer_outlined, size: 18, color: _plumPrimary),
+                      const SizedBox(width: 8),
+                      Text(
+                        isFr ? "Temps d'étude quotidien (Ajouter / Réduire)" : "Daily study time (Add / Reduce hours)",
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      ElevatedButton(
+                        onPressed: _dailyGoalMinutes > 30
+                            ? () => setState(() => _dailyGoalMinutes = (_dailyGoalMinutes - 30).clamp(30, 360))
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          shape: const CircleBorder(),
+                          padding: const EdgeInsets.all(12),
+                          backgroundColor: const Color(0xFFEDE9FE),
+                          foregroundColor: _plumPrimary,
+                          elevation: 0,
+                        ),
+                        child: const Icon(Icons.remove_rounded, size: 22),
+                      ),
+                      Column(
+                        children: [
+                          Text(
+                            _dailyGoalMinutes >= 60
+                                ? '${(_dailyGoalMinutes / 60).toStringAsFixed(_dailyGoalMinutes % 60 == 0 ? 0 : 1)} ' + (isFr ? 'heure(s)' : 'hour(s)')
+                                : '$_dailyGoalMinutes min',
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: _plumPrimary,
+                            ),
+                          ),
+                          Text(
+                            '($_dailyGoalMinutes min ' + (isFr ? 'au total' : 'in total') + ')',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton(
+                        onPressed: _dailyGoalMinutes < 360
+                            ? () => setState(() => _dailyGoalMinutes = (_dailyGoalMinutes + 30).clamp(30, 360))
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          shape: const CircleBorder(),
+                          padding: const EdgeInsets.all(12),
+                          backgroundColor: const Color(0xFFEDE9FE),
+                          foregroundColor: _plumPrimary,
+                          elevation: 0,
+                        ),
+                        child: const Icon(Icons.add_rounded, size: 22),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [30, 60, 90, 120, 180, 240].map((mins) {
+                      final selected = _dailyGoalMinutes == mins;
+                      final label = mins >= 60
+                          ? '${mins ~/ 60}${mins % 60 != 0 ? ".5" : ""}h'
+                          : '${mins}m';
+                      return ChoiceChip(
+                        label: Text(label),
+                        selected: selected,
+                        selectedColor: _plumPrimary.withAlpha(25),
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected ? _plumPrimary : const Color(0xFF475569),
+                        ),
+                        onSelected: (_) => setState(() => _dailyGoalMinutes = mins),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: _plumPrimary.withAlpha(22),
+                  child: const Icon(Icons.access_time_filled_rounded, color: _plumPrimary),
+                ),
+                title: Text(
+                  isFr ? "Heure de début d'étude" : 'Start studying at',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                ),
+                subtitle: Text(
+                  isFr
+                      ? 'Début quotidien à ' + _reminderTime.format(context) + ' (Rappel à chaque matière)'
+                      : 'Daily start at ' + _reminderTime.format(context) + ' (Notification when subject starts)',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+                trailing: TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: _reminderTime,
+                    );
+                    if (picked != null) {
+                      setState(() => _reminderTime = picked);
+                    }
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: Text(isFr ? 'Modifier' : 'Change'),
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _goalCtrl,
               decoration: _dropdownDecoration(
-                'Your goal (e.g. Pass GCE / BEPC / Improve grades)',
+                isFr ? "Votre objectif (ex. Réussir BEPC / Probatoire / Baccalauréat)" : "Your goal (e.g. Pass GCE / BEPC / Improve grades)",
               ),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.notifications_active_outlined,
-                color: _plumPrimary,
-              ),
-              title: const Text(
-                'Daily study reminder',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                'Sunday weekly overview + daily at ${_reminderTime.format(context)}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: const Icon(Icons.edit_outlined, size: 20),
-              onTap: () async {
-                final picked = await showTimePicker(
-                  context: context,
-                  initialTime: _reminderTime,
-                );
-                if (picked != null) {
-                  setState(() => _reminderTime = picked);
-                }
-              },
             ),
           ],
         );
