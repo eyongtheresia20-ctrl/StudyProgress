@@ -1,3 +1,8 @@
+// ============================================================================
+// FILE: notifications_screen.dart
+// PURPOSE: In-App Notification Center & Daily/Weekly Pedagogical Alerts
+// ============================================================================
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +11,8 @@ import '../l10n/app_strings.dart';
 import '../providers/study_provider.dart';
 import '../services/supabase_cloud_service.dart';
 
+/// Displays smart notifications (daily subject reminders, weekly roadmaps,
+/// revision recommendations, and streak alerts) with deep-linking to AI Tutor.
 class NotificationsScreen extends StatefulWidget {
   final void Function(int tabIndex)? onOpenTab;
   final void Function(int? progressionId)? onOpenAiTopic;

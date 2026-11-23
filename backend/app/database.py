@@ -1,3 +1,15 @@
+"""
+=============================================================================
+FILE: database.py
+PURPOSE: MySQL Database Connection Pooling & Transaction Context Manager
+=============================================================================
+Manages raw PyMySQL connections with DictCursor support:
+- Ensures automatic transaction commit on successful operations.
+- Automatically rolls back queries when exceptions occur.
+- Handles clean connection closure in the finally block.
+=============================================================================
+"""
+
 from contextlib import contextmanager
 from typing import Generator
 

@@ -1,3 +1,19 @@
+"""
+=============================================================================
+FILE: main.py
+PURPOSE: FastAPI Main Entry Point & Route Orchestrator for Kivora
+=============================================================================
+Features:
+- CORS middleware with wildcard fallback for multi-device network testing.
+- Static download endpoint for over-the-air APK distribution.
+- Modular router registration:
+    * /auth       - Student & Admin registration, JWT authentication.
+    * /curriculum - Official Cameroon syllabus progressions & class library.
+    * /ai         - AI Tutor endpoints with Gemini LLM integration.
+    * /health     - Health checks and system connectivity diagnostics.
+=============================================================================
+"""
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse

@@ -1,3 +1,24 @@
+// ============================================================================
+// FILE: questionnaire_screen.dart
+// PURPOSE: 7-Step Interactive Student Profile & Pedagogical Questionnaire
+//
+// OVERVIEW & ARCHITECTURE:
+// This screen guides students through a 7-step onboarding and customization
+// wizard tailored to the Cameroonian education systems (Anglophone and Francophone).
+// It collects essential student characteristics to customize:
+//   1. Profile & Goal     - Student's name and personal academic target.
+//   2. Subsystem & Class  - Subsystem (Anglophone: Form 1-Upper Sixth / Francophone: 6ème-Terminale).
+//   3. Age                - Student's age for age-appropriate AI explanations.
+//   4. Subject Selection  - Multi-select offered subjects, favorite subject, & difficult subjects.
+//   5. Hobbies & Interests- Real-world interests (sports, music, coding) used by AI for analogies.
+//   6. Learning Style     - Visual simulations, concrete examples, or guided problem-solving.
+//   7. Study Schedule     - Preferred study periods, daily reminders, and weekly roadmap delivery times.
+//
+// DATA FLOW:
+// - Data is persisted locally in [SharedPreferences] and remotely via [StudyProvider] to Supabase/API.
+// - Triggers automated daily background reminders and Sunday weekly revision notifications.
+// ============================================================================
+
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/supabase_cloud_service.dart';
 import 'package:flutter/material.dart';
@@ -6,9 +27,16 @@ import 'package:provider/provider.dart';
 import '../models/study_models.dart';
 import '../providers/study_provider.dart';
 
+/// Interactive questionnaire screen.
+/// Can be invoked during initial onboarding or in "Edit Profile" mode via [isEditing].
 class QuestionnaireScreen extends StatefulWidget {
+  /// Existing student profile data when editing from the Profile tab.
   final StudentProfile? existingProfile;
+
+  /// True if the user is editing an already saved profile, false during initial registration.
   final bool isEditing;
+
+  /// The step index (0-6) to jump directly to (e.g. from a specific shortcut in Profile).
   final int initialStep;
 
   const QuestionnaireScreen({
@@ -22,12 +50,12 @@ class QuestionnaireScreen extends StatefulWidget {
   State<QuestionnaireScreen> createState() => _QuestionnaireScreenState();
 }
 
-// cleanSubjectName imported from supabase_cloud_service.dart
-
 class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
+  // --- Visual Styling Constants ---
   static const Color _plumPrimary = Color(0xFF26145E);
   static const int _totalQuestions = 7;
 
+  // --- Fallback Subject Catalogs (Used when offline or before class selection) ---
   static const List<String> _francophoneFallbackSubjects = [
     'Mathématiques',
     'Physique',
@@ -56,9 +84,11 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     'Economics',
   ];
 
+  // Dynamic subjects taught in the selected class (queried from official progressions)
   List<String> _classSubjects = List.from(_francophoneFallbackSubjects);
   bool _loadingSubjects = false;
 
+  // Pre-configured reasons for difficulties in school subjects
   static const List<String> _difficultyReasons = [
     'Understanding formulas and rules',
     'Concentrating while studying',
@@ -75,6 +105,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     'Rythme trop rapide en classe',
   ];
 
+  // Suggested hobby tags for personalizing pedagogical examples
   static const List<String> _defaultHobbies = [
     'Football',
     'Music',
@@ -86,30 +117,35 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     'Dancing',
   ];
 
-  int _step = 0;
-  int? _subsystemId;
-  int? _classId;
-  int _age = 15;
-  final Set<String> _offeredSubjects = {};
-  String _favouriteSubject = 'Mathématiques';
-  final Set<String> _difficultSubjects = {'Physique'};
-  String _difficultyReason = 'Comprendre les formules et les règles';
-  final Set<String> _hobbies = {'Football'};
-  String _activityStyle = 'both';
-  String _learningStyle = 'visual_simulations';
-  String _fallbackPreference = 'another_example';
-  String _exercisePreference = 'short_quizzes';
-  String _preferredStudyPeriod = 'evening';
-  int _dailyGoalMinutes = 60;
-  TimeOfDay _reminderTime = const TimeOfDay(hour: 18, minute: 0);
-  int _weeklyProgramDay = 7; // 7 = Sunday, 1 = Monday
-  TimeOfDay _weeklyProgramTime = const TimeOfDay(hour: 18, minute: 0);
-  TimeOfDay _dailyProgramTime = const TimeOfDay(hour: 7, minute: 0);
+  // --- State Variables: Questionnaire Responses ---
+  int _step = 0;                         // Current active step (0 to 6)
+  int? _subsystemId;                     // 1 = Anglophone, 2 = Francophone
+  int? _classId;                         // Class ID (e.g. Upper Sixth, Terminale)
+  int _age = 15;                         // Student age (10 to 25)
+  final Set<String> _offeredSubjects = {}; // Subjects the student actually studies in their series
+  String _favouriteSubject = 'Mathématiques'; // Preferred / best subject
+  final Set<String> _difficultSubjects = {'Physique'}; // Challenging subjects needing revision
+  String _difficultyReason = 'Comprendre les formules et les règles'; // Core obstacle
+  final Set<String> _hobbies = {'Football'}; // Real-world hobbies for analogies
+  String _activityStyle = 'both';        // 'practical', 'theoretical', or 'both'
+  String _learningStyle = 'visual_simulations'; // Preferred learning modality
+  String _fallbackPreference = 'another_example'; // Strategy when confused
+  String _exercisePreference = 'short_quizzes';   // Quiz style preference
+  String _preferredStudyPeriod = 'evening';       // Time of day preferred for studying
+  int _dailyGoalMinutes = 60;                     // Daily study target (minutes)
+  TimeOfDay _reminderTime = const TimeOfDay(hour: 18, minute: 0); // Daily reminder alarm
+  int _weeklyProgramDay = 7;                      // Day weekly roadmap arrives (7 = Sunday, 1 = Monday)
+  TimeOfDay _weeklyProgramTime = const TimeOfDay(hour: 18, minute: 0); // Time of weekly roadmap
+  TimeOfDay _dailyProgramTime = const TimeOfDay(hour: 7, minute: 0);   // Time of daily schedule notification
+
+  // Form text controllers
   final _fullNameCtrl = TextEditingController();
   final _goalCtrl = TextEditingController();
   final _customHobbyCtrl = TextEditingController();
-  String? _error;
+  String? _error; // Error banner message if validation fails
 
+  /// Dynamically queries official curriculum subjects for the student's selected class.
+  /// Ensures subjects match what the class offers (e.g. Upper Sixth Arts does not show Chemistry).
   Future<void> _fetchClassSubjects(int? classId) async {
     if (classId == null) return;
     setState(() => _loadingSubjects = true);
@@ -254,6 +290,8 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     });
   }
 
+  /// Validates selections and submits the completed questionnaire to the API / Supabase.
+  /// Also caches schedule and offered-subject preferences into local [SharedPreferences].
   Future<void> _submit(StudyProvider provider) async {
     if (_subsystemId == null || _classId == null) {
       setState(() => _error = 'Please choose your subsystem and class.');
@@ -261,6 +299,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     }
     setState(() => _error = null);
     try {
+      // 1. Cache schedule preferences locally for background notifications
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('weekly_program_day', _weeklyProgramDay);
       await prefs.setInt('weekly_program_hour', _weeklyProgramTime.hour);
@@ -269,6 +308,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
       await prefs.setInt('daily_program_minute', _dailyProgramTime.minute);
       await prefs.setStringList('offered_subjects', _offeredSubjects.toList());
 
+      // 2. Submit questionnaire payload to API service
       await provider.submitQuestionnaire(
         fullName: _fullNameCtrl.text.trim().isEmpty
             ? null
@@ -550,12 +590,16 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     );
   }
 
+  /// Builds the questionnaire body corresponding to the active step index (0-6).
   Widget _buildQuestionBody(
     List<Subsystem> subsystems,
     List<SchoolClass> classes,
     bool isFr,
   ) {
     switch (_step) {
+      // ----------------------------------------------------------------------
+      // STEP 1: SUBSYSTEM SELECTION & FULL NAME
+      // ----------------------------------------------------------------------
       case 0:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -623,6 +667,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 2: CLASS SELECTION (Form 1 - Upper Sixth / 6ème - Terminale)
+      // ----------------------------------------------------------------------
       case 1:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -663,6 +710,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 3: STUDENT AGE (10 - 25 years old for AI complexity calibration)
+      // ----------------------------------------------------------------------
       case 2:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -700,6 +750,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 4: SUBJECT SELECTION (Offered Subjects, Favorite, & Difficult)
+      // ----------------------------------------------------------------------
       case 3:
         final cleanSubjs = _classSubjects.map(cleanSubjectName).where((s) => s.length > 1).toSet().toList()..sort();
         if (_offeredSubjects.isEmpty && cleanSubjs.isNotEmpty) {
@@ -893,6 +946,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 5: HOBBIES & INTERESTS (Sports, Music, Gaming, Tech for AI analogies)
+      // ----------------------------------------------------------------------
       case 4:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -974,6 +1030,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 6: PEDAGOGICAL & LEARNING STYLE (Visual, practical, video, step-by-step)
+      // ----------------------------------------------------------------------
       case 5:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1042,6 +1101,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ],
         );
 
+      // ----------------------------------------------------------------------
+      // STEP 7: STUDY SCHEDULE & NOTIFICATION TIMINGS
+      // ----------------------------------------------------------------------
       default:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

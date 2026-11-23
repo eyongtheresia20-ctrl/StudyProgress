@@ -1,6 +1,17 @@
+// ============================================================================
+// FILE: splash_screen.dart
+// PURPOSE: Animated App Launch Screen & Initial Bootstrapping Visuals
+//
+// FLOW:
+// - Displays brand logo with smooth fade-in, scale-up, and ambient orbit rotation.
+// - Displayed while [StudyProvider.bootstrap] restores authentication tokens,
+//   cached dashboards, and detects network connectivity.
+// ============================================================================
+
 import 'package:flutter/material.dart';
 import '../widgets/app_logo.dart';
 
+/// Animated splash screen displayed during cold start bootstrapping.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
