@@ -840,23 +840,48 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<StudyProvider>();
-    final dash = provider.adminDashboard;
+    final rawDash = provider.adminDashboard;
+    final isDashLoading = rawDash == null;
+    final dash = rawDash ??
+        AdminDashboardData(
+          admin: provider.user ??
+              AppUser(
+                id: 1,
+                fullName: 'Admin',
+                email: 'admin@kivora.cm',
+                role: 'admin',
+                questionnaireCompleted: true,
+              ),
+          subsystemsCount: 2,
+          classesCount: 14,
+          studentsCount: 0,
+          progressionsCount: 0,
+          recentStudents: const [],
+          progressions: const [],
+          uploadedFolders: const [],
+        );
     final isFr = provider.languageCode == 'fr';
     final adminName =
-        provider.user?.fullName ?? dash?.admin.fullName ?? 'Admin';
+        provider.user?.fullName ?? dash.admin.fullName;
     final initial =
         adminName.trim().isNotEmpty ? adminName.trim()[0].toUpperCase() : 'A';
 
     final pages = [
-      dash == null
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: provider.refreshDashboard,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
-                children: [
-                  Text(
-                    _formattedToday(isFr),
+      RefreshIndicator(
+        onRefresh: provider.refreshDashboard,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+          children: [
+            if (isDashLoading)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: LinearProgressIndicator(
+                  minHeight: 2.5,
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+            Text(
+              _formattedToday(isFr),
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1257,7 +1282,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ],
               ),
             ),
-      dash == null
+      isDashLoading && dash.recentStudents.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Builder(
               builder: (ctx) {

@@ -112,6 +112,8 @@ class StudyProvider extends ChangeNotifier {
     if (cachedUser != null) {
       try {
         _user = AppUser.fromJson(jsonDecode(cachedUser) as Map<String, dynamic>);
+        // Restore cached dashboard immediately for instant rendering without loading delay
+        await _restoreCachedDashboard(_user!.id, _user!.role);
       } catch (_) {}
     }
 
@@ -192,9 +194,12 @@ class StudyProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(kPrefApiBaseUrl, _apiBaseUrl);
       await _persistSession(newToken, newUser);
-      _setBusy(false);
+      await _restoreCachedDashboard(newUser.id, newUser.role);
       loadSubsystems();
-      refreshDashboard();
+      try {
+        await refreshDashboard().timeout(const Duration(seconds: 4));
+      } catch (_) {}
+      _setBusy(false);
     } catch (e) {
       _setBusy(false);
       rethrow;
@@ -215,9 +220,16 @@ class StudyProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(kPrefApiBaseUrl, _apiBaseUrl);
       await _persistSession(newToken, newUser);
-      _setBusy(false);
+
+      // Restore cached dashboard first so UI is immediately ready
+      await _restoreCachedDashboard(newUser.id, newUser.role);
+
       loadSubsystems();
-      refreshDashboard();
+      try {
+        await refreshDashboard().timeout(const Duration(seconds: 4));
+      } catch (_) {}
+
+      _setBusy(false);
     } catch (e) {
       _setBusy(false);
       rethrow;
@@ -293,10 +305,13 @@ class StudyProvider extends ChangeNotifier {
     _error = null;
     try {
       if (_user!.isAdmin) {
-        _adminDashboard = await api.getAdminDashboard();
+        final dash = await api.getAdminDashboard();
+        _adminDashboard = dash;
+        _persistAdminDashboardCache(dash);
       } else {
-        _studentHome = await api.getStudentHome();
-        final home = _studentHome!;
+        final home = await api.getStudentHome();
+        _studentHome = home;
+        _persistStudentHomeCache(home);
         final dailySummary = home.todayTopics.isNotEmpty
             ? 'Today: ${home.todayTopics.map((t) => '${t.subjectName} (${t.topicTitle})').join(', ')}'
             : null;
@@ -327,13 +342,15 @@ class StudyProvider extends ChangeNotifier {
     String? weaknessNotes,
   }) async {
     try {
-      _studentHome = await api.updateTopicProgress(
+      final home = await api.updateTopicProgress(
         progressionId: progressionId,
         status: status,
         understandingLevel: understandingLevel,
         quizScore: quizScore,
         weaknessNotes: weaknessNotes,
       );
+      _studentHome = home;
+      _persistStudentHomeCache(home);
       notifyListeners();
     } catch (_) {
       await refreshDashboard();
@@ -502,6 +519,47 @@ class StudyProvider extends ChangeNotifier {
       'role': user.role,
       'questionnaire_completed': user.questionnaireCompleted,
     }));
+  }
+
+  Future<void> _restoreCachedDashboard(int userId, String role) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (role == 'admin') {
+        final cached = prefs.getString('cached_admin_dash_$userId');
+        if (cached != null) {
+          _adminDashboard = AdminDashboardData.fromJson(
+            jsonDecode(cached) as Map<String, dynamic>,
+          );
+        }
+      } else {
+        final cached = prefs.getString('cached_student_home_$userId');
+        if (cached != null) {
+          _studentHome = StudentHomeData.fromJson(
+            jsonDecode(cached) as Map<String, dynamic>,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistStudentHomeCache(StudentHomeData home) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'cached_student_home_${home.user.id}',
+        jsonEncode(home.toJson()),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _persistAdminDashboardCache(AdminDashboardData dash) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'cached_admin_dash_${dash.admin.id}',
+        jsonEncode(dash.toJson()),
+      );
+    } catch (_) {}
   }
 
   void _setBusy(bool busy) {

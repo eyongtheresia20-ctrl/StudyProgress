@@ -27,6 +27,14 @@ class AppUser {
           json['questionnaire_completed'] as bool? ?? false,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'full_name': fullName,
+        'email': email,
+        'role': role,
+        'questionnaire_completed': questionnaireCompleted,
+      };
 }
 
 class SchoolClass {
@@ -191,6 +199,35 @@ class StudentProfile {
       dailyProgramMinute: (json['daily_program_minute'] as num?)?.toInt() ?? 0,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'user_id': userId,
+        'subsystem_id': subsystemId,
+        'subsystem_name': subsystemName,
+        'class_id': classId,
+        'class_name': className,
+        'age': age,
+        'questionnaire_completed': questionnaireCompleted,
+        'favourite_subject': favouriteSubject,
+        'difficult_subjects': difficultSubjects,
+        'difficulty_reason': difficultyReason,
+        'hobbies': hobbies,
+        'activity_style': activityStyle,
+        'learning_style': learningStyle,
+        'fallback_preference': fallbackPreference,
+        'exercise_preference': exercisePreference,
+        'preferred_study_period': preferredStudyPeriod,
+        'academic_goal': academicGoal,
+        'daily_goal_minutes': dailyGoalMinutes,
+        'reminder_hour': reminderHour,
+        'reminder_minute': reminderMinute,
+        'offered_subjects': offeredSubjects,
+        'weekly_program_day': weeklyProgramDay,
+        'weekly_program_hour': weeklyProgramHour,
+        'weekly_program_minute': weeklyProgramMinute,
+        'daily_program_hour': dailyProgramHour,
+        'daily_program_minute': dailyProgramMinute,
+      };
 }
 
 class OfficialProgression {
@@ -245,6 +282,23 @@ class OfficialProgression {
           json['understanding_level'] as String? ?? 'none',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'subsystem_id': subsystemId,
+        'subsystem_name': subsystemName,
+        'class_id': classId,
+        'class_name': className,
+        'subject_name': subjectName,
+        'topic_title': topicTitle,
+        'subtopics': subtopics,
+        'week_number': weekNumber,
+        'start_date': startDate,
+        'end_date': endDate,
+        'study_days': studyDays,
+        'student_status': studentStatus,
+        'understanding_level': understandingLevel,
+      };
 }
 
 class StudentHomeData {
@@ -296,6 +350,19 @@ class StudentHomeData {
       totalTopicsCount: (json['total_topics_count'] as num?)?.toInt() ?? 0,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'user': user.toJson(),
+        'profile': profile.toJson(),
+        'today_topics': todayTopics.map((e) => e.toJson()).toList(),
+        'weekly_topics': weeklyTopics.map((e) => e.toJson()).toList(),
+        'all_topics': allTopics.map((e) => e.toJson()).toList(),
+        'class_subjects': classSubjects,
+        'program_topics': programTopics.map((e) => e.toJson()).toList(),
+        'understood_count': understoodCount,
+        'needs_revision_count': needsRevisionCount,
+        'total_topics_count': totalTopicsCount,
+      };
 }
 
 class AdminDashboardData {
@@ -341,6 +408,18 @@ class AdminDashboardData {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'admin': admin.toJson(),
+        'subsystems_count': subsystemsCount,
+        'classes_count': classesCount,
+        'students_count': studentsCount,
+        'progressions_count': progressionsCount,
+        'program_topics_count': programTopicsCount,
+        'recent_students': recentStudents,
+        'progressions': progressions.map((e) => e.toJson()).toList(),
+        'uploaded_folders': uploadedFolders,
+      };
 }
 
 class QuizQuestion {

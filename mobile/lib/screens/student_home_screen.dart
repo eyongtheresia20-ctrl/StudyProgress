@@ -870,40 +870,77 @@ class _HomeDashboardTab extends StatelessWidget {
 
 
 
-    if (home == null && provider.error != null) {
-
-      return Center(
-
-        child: Padding(
-
-          padding: const EdgeInsets.all(24),
-
-          child: Column(
-
-            mainAxisSize: MainAxisSize.min,
-
-            children: [
-
-              Text(provider.error!, textAlign: TextAlign.center),
-
-              const SizedBox(height: 12),
-
-              FilledButton(
-
-                onPressed: provider.refreshDashboard,
-
-                child: Text(s.refresh),
-
-              ),
-
-            ],
-
+    if (home == null) {
+      if (provider.error != null) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(provider.error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: provider.refreshDashboard,
+                  child: Text(s.refresh),
+                ),
+              ],
+            ),
           ),
-
+        );
+      }
+      return RefreshIndicator(
+        onRefresh: provider.refreshDashboard,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: LinearProgressIndicator(
+                minHeight: 2.5,
+                backgroundColor: Colors.transparent,
+              ),
+            ),
+            Text(
+              dateLabel,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              s.welcomeStudent(_formatStudentFirstName(userName)),
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              s.readyToProgress,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Container(
+              height: 180,
+              decoration: BoxDecoration(
+                color: const Color(0xFF13346B),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+            ),
+          ],
         ),
-
       );
-
     }
 
 
